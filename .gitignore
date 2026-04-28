@@ -1,0 +1,41 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Root
+.env
+.env.*
+!.env.example
+*.log
+
+# Frontend
+client/node_modules/
+client/dist/
+client/.vite/
+client/.env
+client/.env.*
+!client/.env.example
+
+# Backend
+server/venv/
+server/.venv/
+server/__pycache__/
+server/**/*.pyc
+server/**/*.pyo
+server/**/*.pyd
+server/**/__pycache__/
+server/.env
+server/.env.*
+!server/.env.example
+server/flask.log
+server/flask-error.log
+
+# Python caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
