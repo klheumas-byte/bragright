@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { useLoading } from "./LoadingContext";
-import { getCurrentUser, loginUser, registerUser } from "../services/api";
+import { getCurrentUser, loginUser, logoutUser, registerUser } from "../services/api";
 
 const AuthContext = createContext(null);
 export const AUTH_STORAGE_KEY = "bragright_user";
@@ -35,6 +35,10 @@ export function AuthProvider({ children }) {
   }
 
   function logout() {
+    if (user?.id) {
+      logoutUser().catch(() => null);
+    }
+
     setUser(null);
     localStorage.removeItem(AUTH_STORAGE_KEY);
   }

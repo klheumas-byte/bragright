@@ -5,7 +5,7 @@ import SectionLoader from "../components/SectionLoader";
 import SuccessAlert from "../components/SuccessAlert";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
-import { getAdminDispute, getAdminMatches, resolveAdminDispute } from "../services/api";
+import { getAdminDispute, getAdminMatches, getApiAssetUrl, resolveAdminDispute } from "../services/api";
 
 const resolutionActionOptions = [
   {
@@ -342,8 +342,8 @@ export default function AdminDisputes() {
                     </p>
                   </div>
 
-                  <a className="match-proof-link" href={selectedMatch.proof_image_url} target="_blank" rel="noreferrer">
-                    <img className="match-proof-image" src={selectedMatch.proof_image_url} alt="Match proof" />
+                  <a className="match-proof-link" href={getApiAssetUrl(selectedMatch.proof_image_url)} target="_blank" rel="noreferrer">
+                    <img className="match-proof-image" src={getApiAssetUrl(selectedMatch.proof_image_url)} alt="Match proof" />
                     <span className="inline-action-link">Open proof</span>
                   </a>
                 </div>

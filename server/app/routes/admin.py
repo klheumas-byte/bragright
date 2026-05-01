@@ -1249,6 +1249,54 @@ def get_admin_dispute_detail(match_id):
         return jsonify({"success": False, "message": "Could not load disputed match detail."}), 500
 
 
+@admin_bp.get("/matches/<match_id>")
+def get_admin_match_detail(match_id):
+    try:
+        _, auth_error, auth_status = _require_admin_user()
+        if auth_error:
+            return auth_error, auth_status
+
+        match, error_response, status_code = _load_match(match_id)
+        if error_response:
+            return error_response, status_code
+
+        users_by_id = _load_user_names(
+            match.get("player_one_id") or match.get("submitted_by"),
+            match.get("player_two_id") or match.get("opponent_id"),
+            match.get("disputed_by"),
+            match.get("reviewed_by"),
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "message": "Match detail loaded successfully.",
+                "data": _serialize_admin_match(match, users_by_id),
+            }
+        ), 200
+    except PyMongoError as error:
+        current_app.logger.exception("MongoDB error while loading match detail")
+        return jsonify(
+            {
+                "success": False,
+                "message": describe_mongo_error(error),
+                "debug": get_db_debug_snapshot(current_app.config) if current_app.config.get("DEBUG") else None,
+            }
+        ), 500
+    except RuntimeError as error:
+        current_app.logger.exception("Configuration error while loading match detail")
+        return jsonify(
+            {
+                "success": False,
+                "message": str(error),
+                "debug": get_db_debug_snapshot(current_app.config) if current_app.config.get("DEBUG") else None,
+            }
+        ), 500
+    except Exception:
+        current_app.logger.exception("Unexpected error while loading match detail")
+        return jsonify({"success": False, "message": "Could not load match detail."}), 500
+
+
 @admin_bp.patch("/disputes/<match_id>/resolve")
 @admin_bp.patch("/matches/<match_id>/resolve")
 def resolve_admin_dispute(match_id):

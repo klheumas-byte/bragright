@@ -1,5 +1,6 @@
 Flask==3.0.3
-pymongo
-flask-cors
-python-dotenv
-Werkzeug
+Werkzeug==3.0.6
+flask-cors==5.0.1
+gunicorn==23.0.0
+pymongo==4.10.1
+python-dotenv==1.0.1

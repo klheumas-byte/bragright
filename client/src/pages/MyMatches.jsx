@@ -14,6 +14,7 @@ import {
   declineMatch,
   disputeMatch,
   getDashboardActions,
+  getApiAssetUrl,
   getMyMatches,
   submitMatchResult,
   uploadMatchProof,
@@ -405,8 +406,8 @@ export default function MyMatches() {
                               <p className="match-score-label">Proof image</p>
                               <p className="match-card-meta">Review the uploaded proof before you confirm or dispute.</p>
                             </div>
-                            <a className="match-proof-link" href={match.proof_image_url} target="_blank" rel="noreferrer">
-                              <img className="match-proof-image" src={match.proof_image_url} alt="Match proof" />
+                            <a className="match-proof-link" href={getApiAssetUrl(match.proof_image_url)} target="_blank" rel="noreferrer">
+                              <img className="match-proof-image" src={getApiAssetUrl(match.proof_image_url)} alt="Match proof" />
                               <span className="inline-action-link">Open proof</span>
                             </a>
                           </div>

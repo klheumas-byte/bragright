@@ -1,12 +1,19 @@
 import { NavLink } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 export default function Navbar() {
+  const { isAuthenticated, getHomePathForRole, user } = useAuth();
+  const dashboardPath = getHomePathForRole(user?.role);
+
   return (
     <header className="navbar">
-      <div className="navbar-brand">
-        <p className="brand-tag">BragRight</p>
-        <h1 className="brand-title">React + Flask Dashboard Foundation</h1>
-      </div>
+      <NavLink to="/" className="navbar-brand" aria-label="BragRight home">
+        <span className="brand-mark">BR</span>
+        <div>
+          <p className="brand-tag">BragRight</p>
+          <h1 className="brand-title">Competitive match tracking</h1>
+        </div>
+      </NavLink>
 
       <nav className="navbar-links" aria-label="Main navigation">
         <NavLink
@@ -16,12 +23,14 @@ export default function Navbar() {
         >
           Home
         </NavLink>
-        <NavLink
-          to="/dashboard"
-          className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
-        >
-          Dashboard
-        </NavLink>
+        {isAuthenticated ? (
+          <NavLink
+            to={dashboardPath}
+            className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
+          >
+            Dashboard
+          </NavLink>
+        ) : null}
         <NavLink
           to="/login"
           className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}

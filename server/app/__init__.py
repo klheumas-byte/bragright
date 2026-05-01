@@ -18,9 +18,27 @@ from .routes.players import players_bp
 from .routes.profile import profile_bp
 
 
+def _validate_runtime_config(app):
+    required_settings = ("MONGO_URI", "MONGO_DB_NAME")
+    missing_settings = [name for name in required_settings if not app.config.get(name)]
+
+    if not app.config.get("DEBUG") and not app.config.get("SECRET_KEY"):
+        missing_settings.append("SECRET_KEY")
+
+    if not app.config.get("DEBUG") and not app.config.get("FRONTEND_ORIGIN"):
+        missing_settings.append("FRONTEND_ORIGIN")
+
+    if missing_settings:
+        raise RuntimeError(
+            "Missing required environment variables: "
+            + ", ".join(sorted(set(missing_settings)))
+        )
+
+
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
+    _validate_runtime_config(app)
 
     init_extensions(app)
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
@@ -49,6 +67,7 @@ def create_app(config_class=Config):
                     "register": "/api/auth/register",
                     "login": "/api/auth/login",
                     "me": "/api/auth/me",
+                    "logout": "/api/auth/logout",
                     "my_activity": "/api/activity/me",
                     "admin_summary": "/api/admin/summary",
                     "admin_dashboard_summary": "/api/admin/dashboard/summary",
@@ -59,6 +78,7 @@ def create_app(config_class=Config):
                     "admin_activity": "/api/admin/activity",
                     "admin_logins": "/api/admin/logins",
                     "admin_disputes": "/api/admin/disputes",
+                    "admin_match_detail": "/api/admin/matches/<id>",
                     "profile_me": "/api/profile/me",
                     "profile_update": "/api/profile/update",
                     "profile_me_matches": "/api/profile/me/matches",

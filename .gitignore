@@ -11,6 +11,11 @@ Thumbs.db
 .env.*
 !.env.example
 *.log
+dist/
+node_modules/
+venv/
+.venv/
+__pycache__/
 
 # Frontend
 client/node_modules/
@@ -38,4 +43,3 @@ server/flask-error.log
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-

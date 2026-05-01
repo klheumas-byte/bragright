@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import ButtonLoadingText from "../components/ButtonLoadingText";
 import SectionSkeleton from "../components/SectionSkeleton";
 import { useAuth } from "../context/AuthContext";
 import { useLoading } from "../context/LoadingContext";
@@ -178,9 +179,7 @@ export default function Profile() {
         image,
       }));
     } catch (error) {
-      const message = "Could not read the selected image.";
-      setFeedback({ type: "error", message });
-      alert(message);
+      setFeedback({ type: "error", message: "Could not read the selected image." });
     }
   }
 
@@ -213,9 +212,10 @@ export default function Profile() {
       await refreshCurrentUser();
       await loadProfilePage();
     } catch (error) {
-      const message = error.message || "Could not update your profile.";
-      setFeedback({ type: "error", message });
-      alert(message);
+      setFeedback({
+        type: "error",
+        message: error.message || "Could not update your profile.",
+      });
     } finally {
       setIsSaving(false);
     }
@@ -243,7 +243,11 @@ export default function Profile() {
             <div className="profile-identity-block">
               <div className="profile-avatar profile-avatar-large">
                 {displayImage ? (
-                  <img src={displayImage} alt={`${profile.username || "Player"} profile`} className="profile-avatar-image" />
+                  <img
+                    src={displayImage}
+                    alt={`${profile.username || "Player"} profile`}
+                    className="profile-avatar-image"
+                  />
                 ) : (
                   getAvatarInitials(profile.username || profile.email || "BR")
                 )}
@@ -251,7 +255,7 @@ export default function Profile() {
 
               <div className="profile-identity-copy">
                 <h2 className="profile-hero-title">{profile.username || "BragRight Player"}</h2>
-                <p className="profile-hero-email">{profile.email || "—"}</p>
+                <p className="profile-hero-email">{profile.email || "-"}</p>
               </div>
             </div>
 
@@ -329,7 +333,9 @@ export default function Profile() {
 
             <div className="profile-editor-actions">
               <button type="submit" className="action-card-link" disabled={isSaving}>
-                {isSaving ? "Saving..." : "Save"}
+                <ButtonLoadingText isLoading={isSaving} loadingText="Saving...">
+                  Save
+                </ButtonLoadingText>
               </button>
             </div>
           </form>
@@ -383,7 +389,7 @@ export default function Profile() {
                           {formatResultLabel(match.result_label)} vs {match.opponent.username}
                         </p>
                         <p className="match-card-meta">
-                          {match.score_line || "—"} | {match.display_status}
+                          {match.score_line || "-"} | {match.display_status}
                         </p>
                       </div>
                       <p className="match-card-meta">{formatDate(match.played_at)}</p>
@@ -392,7 +398,9 @@ export default function Profile() {
                 </div>
               ) : (
                 <div className="match-empty-state">
-                  <p className="empty-state-copy">Your recent summary will appear here once matches are recorded.</p>
+                  <p className="empty-state-copy">
+                    Your recent summary will appear here once matches are recorded.
+                  </p>
                 </div>
               )}
             </section>
@@ -418,9 +426,13 @@ export default function Profile() {
                         </div>
                         <div className="profile-match-badges">
                           {match.status === "confirmed" ? (
-                            <span className={`match-status-badge ${getResultTone(match.result)}`}>{match.result_label}</span>
+                            <span className={`match-status-badge ${getResultTone(match.result)}`}>
+                              {match.result_label}
+                            </span>
                           ) : null}
-                          <span className={`match-status-badge ${getStatusTone(match.status)}`}>{match.display_status}</span>
+                          <span className={`match-status-badge ${getStatusTone(match.status)}`}>
+                            {match.display_status}
+                          </span>
                         </div>
                       </div>
 
@@ -576,17 +588,17 @@ function normalizeActivityLogs(logs) {
 
 function getActivityIcon(actionType) {
   const iconMap = {
-    login: "🔐",
-    match_submitted: "⚽",
-    match_confirmed: "✅",
-    match_disputed: "⚠️",
-    proof_uploaded: "🖼️",
-    password_reset: "🔑",
-    role_changed: "🛡️",
-    settings_updated: "⚙️",
+    login: "LG",
+    match_submitted: "MS",
+    match_confirmed: "OK",
+    match_disputed: "DP",
+    proof_uploaded: "PF",
+    password_reset: "PW",
+    role_changed: "RL",
+    settings_updated: "ST",
   };
 
-  return iconMap[actionType] || "•";
+  return iconMap[actionType] || "..";
 }
 
 function formatActivityDescription(actionType, details) {
@@ -641,7 +653,7 @@ function formatActivityDetails(details) {
     return details
       .map((value) => formatActivityValue(value))
       .filter(Boolean)
-      .join(" • ");
+      .join(" | ");
   }
 
   if (typeof details !== "object") {
@@ -652,7 +664,7 @@ function formatActivityDetails(details) {
     .filter(([, value]) => value != null && value !== "")
     .map(([key, value]) => `${formatActivityKey(key)}: ${formatActivityValue(value)}`)
     .filter(Boolean)
-    .join(" • ");
+    .join(" | ");
 }
 
 function formatActivityKey(value) {
@@ -742,12 +754,12 @@ function formatStatus(value) {
 
 function formatDate(date) {
   if (!date) {
-    return "—";
+    return "-";
   }
 
   const parsedDate = new Date(date);
   if (Number.isNaN(parsedDate.getTime())) {
-    return "—";
+    return "-";
   }
 
   return parsedDate.toLocaleString();

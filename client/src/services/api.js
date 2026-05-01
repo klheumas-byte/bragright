@@ -19,7 +19,9 @@ async function apiRequest(path, options = {}) {
       ...options,
     });
   } catch (error) {
-    throw new Error("Could not reach the backend API. Make sure Flask is running on port 5000.");
+    throw new Error(
+      "Could not reach the backend API. Check the backend server and VITE_API_BASE_URL."
+    );
   }
 
   const responseText = await response.text();
@@ -136,7 +138,7 @@ function getDefaultApiErrorMessage(status, requestUrl) {
     return "Your session is no longer valid. Please log in again.";
   }
 
-  return `The API request failed with status ${status}. Make sure Flask is running on port 5000.`;
+  return `The API request failed with status ${status}. Check the backend deployment and API base URL for ${requestUrl}.`;
 }
 
 function shouldRetryWithFallback(error) {
@@ -264,6 +266,12 @@ export function loginUser(credentials) {
 
 export function getCurrentUser() {
   return apiRequest("/auth/me");
+}
+
+export function logoutUser() {
+  return apiRequest("/auth/logout", {
+    method: "POST",
+  });
 }
 
 export function getMyProfile() {
@@ -494,7 +502,11 @@ export function getAdminMatches(filters = {}) {
 }
 
 export function getAdminDispute(matchId) {
-  return apiRequest(`/admin/disputes/${matchId}`);
+  return apiRequestWithFallback(
+    `/admin/disputes/${matchId}`,
+    {},
+    () => apiRequest(`/admin/matches/${matchId}`)
+  );
 }
 
 export function resolveAdminDispute(matchId, resolutionPayload) {

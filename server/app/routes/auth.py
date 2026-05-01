@@ -364,6 +364,16 @@ def me():
         return jsonify({"success": False, "message": "Could not load the current user."}), 500
 
 
+@auth_bp.post("/logout")
+def logout():
+    return jsonify(
+        {
+            "success": True,
+            "message": "Logged out successfully.",
+        }
+    ), 200
+
+
 __all__ = [
     "USER_STATUS_ACTIVE",
     "USER_STATUS_DISABLED",

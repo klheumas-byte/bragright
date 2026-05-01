@@ -123,10 +123,7 @@ export default function Dashboard() {
   ];
 
   return (
-    <DashboardLayout
-      title="Performance Dashboard"
-      description=""
-    >
+    <DashboardLayout title="Performance Dashboard" description="">
       <section className="stat-grid stat-grid-wide">
         {isLoadingDashboard
           ? stats.map((stat) => (
@@ -147,12 +144,7 @@ export default function Dashboard() {
       </section>
 
       <section className="dashboard-panels">
-        <MomentumChart
-          title="Weekly Momentum"
-          subtitle=""
-          data={momentumData}
-        />
-
+        <MomentumChart title="Weekly Momentum" subtitle="" data={momentumData} />
         <TopPerformers players={topPerformers} />
       </section>
 
@@ -212,13 +204,13 @@ export default function Dashboard() {
                       <h3 className="review-item-title">{item.message}</h3>
                       <p className="review-item-time">{formatDate(item.created_at)}</p>
                     </div>
-                <button
-                  type="button"
-                  className="inline-action-link"
-                  onClick={() => navigate(buildActionDestination(item))}
-                >
-                  {item.action_label || "Review Now"}
-                </button>
+                    <button
+                      type="button"
+                      className="inline-action-link"
+                      onClick={() => navigate(buildActionDestination(item))}
+                    >
+                      {item.action_label || "Review Now"}
+                    </button>
                   </article>
                 ))}
               </div>
@@ -239,7 +231,12 @@ function buildActionDestination(item) {
   const destination = new URL(rawDestination, window.location.origin);
   const matchId = item?.related_match_id || item?.match_id;
 
-  if ((destination.pathname === "/dashboard/matches" || destination.pathname.endsWith("/dashboard/matches")) && matchId && !destination.searchParams.get("matchId")) {
+  if (
+    (destination.pathname === "/dashboard/matches" ||
+      destination.pathname.endsWith("/dashboard/matches")) &&
+    matchId &&
+    !destination.searchParams.get("matchId")
+  ) {
     destination.searchParams.set("matchId", matchId);
   }
 
@@ -250,13 +247,13 @@ function buildActionDestination(item) {
 
 function formatDate(value) {
   if (!value) {
-    return "—";
+    return "-";
   }
 
   const parsedDate = new Date(value);
 
   if (Number.isNaN(parsedDate.getTime())) {
-    return "—";
+    return "-";
   }
 
   return new Intl.DateTimeFormat("en-US", {
