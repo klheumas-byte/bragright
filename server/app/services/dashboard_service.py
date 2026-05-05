@@ -2,13 +2,36 @@ from .match_workflow import create_match_action_items
 from .player_profile_service import build_profile_overview, get_matches_for_user
 
 
-def get_dashboard_summary(current_user_id, matches_collection):
-    related_matches = get_matches_for_user(current_user_id, matches_collection)
-    overview = build_profile_overview(related_matches, current_user_id)
+def get_dashboard_summary(current_user, matches_collection, *, is_admin=False):
+    current_user_id = str(current_user.get("id") or "")
+
+    if is_admin:
+        actions = create_match_action_items(current_user, matches_collection, is_admin=True)
+        overview = {
+            "total_matches": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "pending_matches": 0,
+            "disputed_matches": actions["disputed_matches_count"],
+            "actions_required": actions["total_actions_count"],
+        }
+    else:
+        related_matches = get_matches_for_user(current_user_id, matches_collection)
+        overview = build_profile_overview(related_matches, current_user_id)
+        actions = create_match_action_items(
+            current_user,
+            matches_collection,
+            is_admin=False,
+            related_matches=related_matches,
+        )
 
     return {
-        **overview,
-        "actions_required": overview.get("actions_required", 0),
+        "summary": {
+            **overview,
+            "actions_required": overview.get("actions_required", 0),
+        },
+        "action_center": build_dashboard_action_center(actions, is_admin=is_admin),
     }
 
 
@@ -42,6 +65,10 @@ def get_dashboard_notifications(current_user, matches_collection, *, is_admin=Fa
 
 def get_dashboard_action_center(current_user, matches_collection, *, is_admin=False):
     actions = get_dashboard_actions(current_user, matches_collection, is_admin=is_admin)
+    return build_dashboard_action_center(actions, is_admin=is_admin)
+
+
+def build_dashboard_action_center(actions, *, is_admin=False):
     review_required = actions["total_actions_count"]
 
     cards = [

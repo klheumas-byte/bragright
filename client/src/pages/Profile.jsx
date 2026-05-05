@@ -44,16 +44,19 @@ export default function Profile() {
   const [matches, setMatches] = useState([]);
   const [activity, setActivity] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingTab, setIsLoadingTab] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [feedback, setFeedback] = useState({ type: "", message: "" });
+  const [hasLoadedMatches, setHasLoadedMatches] = useState(false);
+  const [hasLoadedActivity, setHasLoadedActivity] = useState(false);
   const [editForm, setEditForm] = useState({
     username: "",
     image: "",
   });
 
   useEffect(() => {
-    loadProfilePage();
+    loadProfileOverview();
   }, []);
 
   useEffect(() => {
@@ -69,6 +72,16 @@ export default function Profile() {
       image: fallbackProfile.profile_image,
     }));
   }, [authUser]);
+
+  useEffect(() => {
+    if (activeTab === "matches" && !hasLoadedMatches) {
+      loadMatchesTab();
+    }
+
+    if (activeTab === "activity" && !hasLoadedActivity) {
+      loadActivityTab();
+    }
+  }, [activeTab, hasLoadedActivity, hasLoadedMatches]);
 
   const statCards = useMemo(
     () => [
@@ -112,56 +125,93 @@ export default function Profile() {
     [profile]
   );
 
-  async function loadProfilePage() {
+  async function loadProfileOverview(options = {}) {
     try {
       setIsLoading(true);
       setFeedback({ type: "", message: "" });
 
-      const [profileResult, matchesResult, activityResult] = await trackLoading(() =>
-        Promise.allSettled([getMyProfile(), getMyProfileMatches(), getMyActivity()])
-      );
+      const profileResponse = await trackLoading(() => getMyProfile({ forceRefresh: options.forceRefresh }));
+      const nextProfile = normalizeProfile(profileResponse?.data, authUser);
+      setProfile(nextProfile);
+      setEditForm({
+        username: nextProfile.username,
+        image: nextProfile.profile_image,
+      });
+    } catch (error) {
+      const fallbackProfile = buildFallbackProfile(authUser);
+      setProfile(fallbackProfile);
+      setEditForm({
+        username: fallbackProfile.username,
+        image: fallbackProfile.profile_image,
+      });
+      setFeedback({
+        type: "error",
+        message: error.message || "Profile could not be loaded.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
-      const nextMessages = [];
+  async function loadMatchesTab(options = {}) {
+    try {
+      setIsLoadingTab(true);
+      const response = await trackLoading(() => getMyProfileMatches({ forceRefresh: options.forceRefresh }));
+      setMatches(normalizeMatches(response?.data?.matches));
+      setHasLoadedMatches(true);
+    } catch (error) {
+      setMatches([]);
+      setFeedback({
+        type: "error",
+        message: error.message || "Match history could not be loaded.",
+      });
+    } finally {
+      setIsLoadingTab(false);
+    }
+  }
 
-      if (profileResult.status === "fulfilled") {
-        const nextProfile = normalizeProfile(profileResult.value?.data, authUser);
-        setProfile(nextProfile);
-        setEditForm({
-          username: nextProfile.username,
-          image: nextProfile.profile_image,
-        });
-      } else {
+  async function loadActivityTab(options = {}) {
+    try {
+      setIsLoadingTab(true);
+      const response = await trackLoading(() => getMyActivity({ forceRefresh: options.forceRefresh }));
+      setActivity(normalizeActivityLogs(response?.data?.logs));
+      setHasLoadedActivity(true);
+    } catch (error) {
+      setActivity([]);
+      setFeedback({
+        type: "error",
+        message: error.message || "Activity could not be loaded.",
+      });
+    } finally {
+      setIsLoadingTab(false);
+    }
+  }
+
+  async function loadProfilePage() {
+    try {
+      setFeedback({ type: "", message: "" });
+      await loadProfileOverview({ forceRefresh: true });
+
+      if (hasLoadedMatches) {
+        await loadMatchesTab({ forceRefresh: true });
+      }
+
+      if (hasLoadedActivity) {
+        await loadActivityTab({ forceRefresh: true });
+      }
+    } catch (error) {
+      if (!error?.message) {
         const fallbackProfile = buildFallbackProfile(authUser);
         setProfile(fallbackProfile);
         setEditForm({
           username: fallbackProfile.username,
           image: fallbackProfile.profile_image,
         });
-        nextMessages.push(profileResult.reason?.message || "Profile could not be loaded.");
-      }
-
-      if (matchesResult.status === "fulfilled") {
-        setMatches(normalizeMatches(matchesResult.value?.data?.matches));
-      } else {
-        setMatches([]);
-        nextMessages.push(matchesResult.reason?.message || "Match history could not be loaded.");
-      }
-
-      if (activityResult.status === "fulfilled") {
-        setActivity(normalizeActivityLogs(activityResult.value?.data?.logs));
-      } else {
-        setActivity([]);
-        nextMessages.push(activityResult.reason?.message || "Activity could not be loaded.");
-      }
-
-      if (nextMessages.length) {
         setFeedback({
           type: "error",
-          message: nextMessages.join(" "),
+          message: "Profile could not be loaded.",
         });
       }
-    } finally {
-      setIsLoading(false);
     }
   }
 
@@ -415,7 +465,9 @@ export default function Profile() {
                 </div>
               </div>
 
-              {matches.length ? (
+              {isLoadingTab && !hasLoadedMatches ? (
+                <SectionSkeleton lines={6} />
+              ) : matches.length ? (
                 <div className="profile-match-list">
                   {matches.map((match) => (
                     <article key={match.id} className="profile-match-card">
@@ -466,7 +518,9 @@ export default function Profile() {
                 </div>
               </div>
 
-              {activity.length ? (
+              {isLoadingTab && !hasLoadedActivity ? (
+                <SectionSkeleton lines={6} />
+              ) : activity.length ? (
                 <div className="profile-activity-list">
                   {activity.map((item) => (
                     <article key={item.id} className="profile-activity-card">

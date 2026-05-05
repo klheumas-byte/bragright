@@ -31,9 +31,14 @@ export default function AdminSettings() {
         trackLoading(() => getAdminLogins()),
       ]);
 
-      setSettings(settingsResponse.data || initialSettings);
-      setActivity(activityResponse.data.logs || []);
+      setSettings({
+        ...initialSettings,
+        ...(settingsResponse?.data || {}),
+      });
+      setActivity(Array.isArray(activityResponse?.data?.logs) ? activityResponse.data.logs : []);
     } catch (error) {
+      setSettings(initialSettings);
+      setActivity([]);
       setFeedback({ type: "error", message: error.message });
     } finally {
       setIsLoading(false);
@@ -59,7 +64,10 @@ export default function AdminSettings() {
           duplicate_window_minutes: Number(settings.duplicate_window_minutes),
         })
       );
-      setSettings(response.data || initialSettings);
+      setSettings({
+        ...initialSettings,
+        ...(response?.data || {}),
+      });
       setFeedback({ type: "success", message: response.message });
     } catch (error) {
       setFeedback({ type: "error", message: error.message });

@@ -1,6 +1,10 @@
 import { AUTH_STORAGE_KEY } from "../context/AuthContext";
 
+export const AUTH_FAILURE_EVENT = "bragright:auth-failure";
 const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
+const responseCache = new Map();
+const pendingGetRequests = new Map();
+const DEFAULT_GET_CACHE_TTL_MS = 15_000;
 
 async function apiRequest(path, options = {}) {
   let response;
@@ -25,20 +29,57 @@ async function apiRequest(path, options = {}) {
   }
 
   const responseText = await response.text();
-  const data = parseJsonResponse(responseText);
+  const data = parseJsonResponse(responseText, response.headers.get("content-type"), requestUrl);
 
   if (!response.ok) {
-    throw new Error(
-      data?.message ||
-        getDefaultApiErrorMessage(response.status, requestUrl)
+    const error = createApiError(
+      response.status,
+      data?.message || getDefaultApiErrorMessage(response.status, requestUrl)
     );
+    handleAuthFailure(error.status);
+    throw error;
   }
 
   if (!data) {
-    throw new Error("The backend returned an empty response.");
+    throw createApiError(500, "The backend returned an empty response.");
   }
 
   return data;
+}
+
+async function cachedApiRequest(path, options = {}) {
+  const {
+    cacheKey = path,
+    ttlMs = DEFAULT_GET_CACHE_TTL_MS,
+    forceRefresh = false,
+  } = options;
+
+  const now = Date.now();
+  const cachedEntry = responseCache.get(cacheKey);
+  if (!forceRefresh && cachedEntry && cachedEntry.expiresAt > now) {
+    return cachedEntry.data;
+  }
+
+  if (!forceRefresh && pendingGetRequests.has(cacheKey)) {
+    return pendingGetRequests.get(cacheKey);
+  }
+
+  const requestPromise = apiRequest(path)
+    .then((data) => {
+      responseCache.set(cacheKey, {
+        data,
+        expiresAt: Date.now() + ttlMs,
+      });
+      pendingGetRequests.delete(cacheKey);
+      return data;
+    })
+    .catch((error) => {
+      pendingGetRequests.delete(cacheKey);
+      throw error;
+    });
+
+  pendingGetRequests.set(cacheKey, requestPromise);
+  return requestPromise;
 }
 
 async function apiRequestWithFallback(primaryPath, primaryOptions, fallbackRequest) {
@@ -142,12 +183,7 @@ function getDefaultApiErrorMessage(status, requestUrl) {
 }
 
 function shouldRetryWithFallback(error) {
-  const message = String(error?.message || "");
-  return (
-    message.includes("was not found") ||
-    message.includes("status 404") ||
-    message.includes("status 405")
-  );
+  return error?.status === 404 || error?.status === 405;
 }
 
 function deriveOverviewFromLegacyMatches(matches, currentUserId) {
@@ -234,7 +270,7 @@ function normalizeMatchRecord(match, currentUserId) {
   };
 }
 
-function parseJsonResponse(responseText) {
+function parseJsonResponse(responseText, contentType = "", requestUrl = "") {
   if (!responseText) {
     return null;
   }
@@ -242,46 +278,100 @@ function parseJsonResponse(responseText) {
   try {
     return JSON.parse(responseText);
   } catch (error) {
-    throw new Error("The backend returned a response that was not valid JSON.");
+    const normalizedContentType = String(contentType || "").toLowerCase();
+    const likelyHtmlResponse =
+      normalizedContentType.includes("text/html") ||
+      /^\s*<!doctype html/i.test(responseText) ||
+      /^\s*<html/i.test(responseText);
+
+    if (likelyHtmlResponse) {
+      throw createApiError(
+        500,
+        `The API request for ${requestUrl} returned HTML instead of JSON. Check the Render API host and VITE_API_BASE_URL.`
+      );
+    }
+
+    throw createApiError(500, "The backend returned a response that was not valid JSON.");
   }
 }
 
+function createApiError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function handleAuthFailure(status) {
+  if (status !== 401) {
+    return;
+  }
+
+  clearApiCache();
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+  window.dispatchEvent(new Event(AUTH_FAILURE_EVENT));
+}
+
+function clearApiCache() {
+  responseCache.clear();
+  pendingGetRequests.clear();
+}
+
+async function apiMutation(path, options) {
+  const data = await apiRequest(path, options);
+  clearApiCache();
+  return data;
+}
+
 export function getHealthStatus() {
-  return apiRequest("/health");
+  return cachedApiRequest("/health", {
+    cacheKey: "health",
+    ttlMs: 60_000,
+  });
 }
 
 export function registerUser(credentials) {
-  return apiRequest("/auth/register", {
+  return apiMutation("/auth/register", {
     method: "POST",
     body: JSON.stringify(credentials),
   });
 }
 
 export function loginUser(credentials) {
-  return apiRequest("/auth/login", {
+  return apiMutation("/auth/login", {
     method: "POST",
     body: JSON.stringify(credentials),
   });
 }
 
-export function getCurrentUser() {
-  return apiRequest("/auth/me");
+export function getCurrentUser(options = {}) {
+  return cachedApiRequest("/auth/me", {
+    cacheKey: "current-user",
+    ttlMs: 60_000,
+    forceRefresh: options.forceRefresh,
+  });
 }
 
 export function logoutUser() {
-  return apiRequest("/auth/logout", {
+  return apiMutation("/auth/logout", {
     method: "POST",
   });
 }
 
-export function getMyProfile() {
+export function getMyProfile(options = {}) {
+  if (!options.forceRefresh) {
+    const cachedEntry = responseCache.get("my-profile");
+    if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
+      return Promise.resolve(cachedEntry.data);
+    }
+  }
+
   return apiRequestWithFallback(
     "/profile/me",
     {},
     async () => {
       const [currentUserResponse, matchesResponse] = await Promise.all([
-        getCurrentUser(),
-        getMyMatches(),
+        getCurrentUser(options),
+        getMyMatches(options),
       ]);
       const currentUser = currentUserResponse?.user || {};
       const matches = Array.isArray(matchesResponse?.data?.matches) ? matchesResponse.data.matches : [];
@@ -303,16 +393,32 @@ export function getMyProfile() {
         },
       };
     }
-  );
+  ).then((data) => {
+    const forceRefresh = options.forceRefresh === true;
+    if (!forceRefresh) {
+      responseCache.set("my-profile", {
+        data,
+        expiresAt: Date.now() + 30_000,
+      });
+    }
+    return data;
+  });
 }
 
-export function getMyProfileMatches() {
+export function getMyProfileMatches(options = {}) {
+  if (!options.forceRefresh) {
+    const cachedEntry = responseCache.get("my-profile-matches");
+    if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
+      return Promise.resolve(cachedEntry.data);
+    }
+  }
+
   return apiRequestWithFallback(
     "/profile/me/matches",
     {},
     async () => {
       const currentUser = getStoredUser() || {};
-      const response = await getMyMatches();
+      const response = await getMyMatches(options);
       const matches = Array.isArray(response?.data?.matches) ? response.data.matches : [];
 
       return {
@@ -323,11 +429,19 @@ export function getMyProfileMatches() {
         },
       };
     }
-  );
+  ).then((data) => {
+    if (!options.forceRefresh) {
+      responseCache.set("my-profile-matches", {
+        data,
+        expiresAt: Date.now() + 20_000,
+      });
+    }
+    return data;
+  });
 }
 
 export function updateMyProfile({ userId, username, image } = {}) {
-  return apiRequest("/profile/update", {
+  return apiMutation("/profile/update", {
     method: "POST",
     body: JSON.stringify({
       user_id: userId,
@@ -338,11 +452,17 @@ export function updateMyProfile({ userId, username, image } = {}) {
 }
 
 export function getPlayers() {
-  return apiRequest("/players");
+  return cachedApiRequest("/players", {
+    cacheKey: "players",
+    ttlMs: 300_000,
+  });
 }
 
 export function getLeaderboard() {
-  return apiRequest("/leaderboard");
+  return cachedApiRequest("/leaderboard", {
+    cacheKey: "leaderboard",
+    ttlMs: 30_000,
+  });
 }
 
 export function getPublicPlayerProfile(playerId) {
@@ -354,19 +474,32 @@ export function getHeadToHead(playerAId, playerBId) {
 }
 
 export function getDashboardNotifications() {
-  return apiRequest("/dashboard/notifications");
+  return cachedApiRequest("/dashboard/notifications", {
+    cacheKey: "dashboard-notifications",
+    ttlMs: 10_000,
+  });
 }
 
 export function getDashboardActions() {
-  return apiRequest("/dashboard/actions");
+  return cachedApiRequest("/dashboard/actions", {
+    cacheKey: "dashboard-actions",
+    ttlMs: 10_000,
+  });
 }
 
-export function getDashboardSummary() {
-  return apiRequest("/dashboard/summary");
+export function getDashboardSummary(options = {}) {
+  return cachedApiRequest("/dashboard/summary", {
+    cacheKey: "dashboard-summary",
+    ttlMs: 10_000,
+    forceRefresh: options.forceRefresh,
+  });
 }
 
 export function getDashboardActionCenter() {
-  return apiRequest("/dashboard/action-center");
+  return cachedApiRequest("/dashboard/action-center", {
+    cacheKey: "dashboard-action-center",
+    ttlMs: 10_000,
+  });
 }
 
 export function getAdminSummary() {
@@ -395,21 +528,21 @@ export function getAdminUsers(filters = {}) {
 }
 
 export function createAdminUser(userPayload) {
-  return apiRequest("/admin/users", {
+  return apiMutation("/admin/users", {
     method: "POST",
     body: JSON.stringify(userPayload),
   });
 }
 
 export function updateAdminUserRole(userId, role) {
-  return apiRequest(`/admin/users/${userId}/role`, {
+  return apiMutation(`/admin/users/${userId}/role`, {
     method: "PATCH",
     body: JSON.stringify({ role }),
   });
 }
 
 export function updateAdminUserStatus(userId, status) {
-  return apiRequest(`/admin/users/${userId}/status`, {
+  return apiMutation(`/admin/users/${userId}/status`, {
     method: "PATCH",
     body: JSON.stringify({ status }),
   });
@@ -425,7 +558,7 @@ export function resetAdminUserPassword(userId) {
       body: JSON.stringify({}),
     },
     () =>
-      apiRequest(`/admin/users/${userId}/password`, {
+      apiMutation(`/admin/users/${userId}/password`, {
         method: "PATCH",
         body: JSON.stringify({ new_password: fallbackTemporaryPassword }),
       })
@@ -438,7 +571,10 @@ export function resetAdminUserPassword(userId) {
             temporary_password: fallbackTemporaryPassword,
           },
         }))
-  );
+  ).then((data) => {
+    clearApiCache();
+    return data;
+  });
 }
 
 export function getAdminSettings() {
@@ -446,7 +582,7 @@ export function getAdminSettings() {
 }
 
 export function updateAdminSettings(settingsPayload) {
-  return apiRequest("/admin/settings", {
+  return apiMutation("/admin/settings", {
     method: "PATCH",
     body: JSON.stringify(settingsPayload),
   });
@@ -478,8 +614,12 @@ export function getAdminLogins(filters = {}) {
   return apiRequest(`/admin/logins${queryString ? `?${queryString}` : ""}`);
 }
 
-export function getMyActivity() {
-  return apiRequest("/activity/me");
+export function getMyActivity(options = {}) {
+  return cachedApiRequest("/activity/me?limit=20", {
+    cacheKey: "my-activity:20",
+    ttlMs: 20_000,
+    forceRefresh: options.forceRefresh,
+  });
 }
 
 export function getAdminLoginActivity() {
@@ -510,34 +650,34 @@ export function getAdminDispute(matchId) {
 }
 
 export function resolveAdminDispute(matchId, resolutionPayload) {
-  return apiRequest(`/admin/matches/${matchId}/resolve`, {
+  return apiMutation(`/admin/matches/${matchId}/resolve`, {
     method: "PATCH",
     body: JSON.stringify(resolutionPayload),
   });
 }
 
 export function scheduleMatch(matchPayload) {
-  return apiRequest("/matches/schedule", {
+  return apiMutation("/matches/schedule", {
     method: "POST",
     body: JSON.stringify(matchPayload),
   });
 }
 
 export function submitMatchResult(matchId, matchPayload) {
-  return apiRequest(`/matches/${matchId}/submit-result`, {
+  return apiMutation(`/matches/${matchId}/submit-result`, {
     method: "POST",
     body: JSON.stringify(matchPayload),
   });
 }
 
 export function acceptMatch(matchId) {
-  return apiRequest(`/matches/${matchId}/accept`, {
+  return apiMutation(`/matches/${matchId}/accept`, {
     method: "POST",
   });
 }
 
 export function declineMatch(matchId) {
-  return apiRequest(`/matches/${matchId}/decline`, {
+  return apiMutation(`/matches/${matchId}/decline`, {
     method: "POST",
   });
 }
@@ -550,14 +690,20 @@ export function uploadMatchProof(file) {
   const formData = new FormData();
   formData.append("proof_image", file);
 
-  return apiRequest("/matches/upload-proof", {
+  return apiMutation("/matches/upload-proof", {
     method: "POST",
     body: formData,
   });
 }
 
-export function getMyMatches() {
-  return apiRequest("/matches/my").then((response) => ({
+export function getMyMatches(options = {}) {
+  const limit = options.limit ?? 200;
+  const path = `/matches/my?limit=${limit}`;
+  return cachedApiRequest(path, {
+    cacheKey: `my-matches:${limit}`,
+    ttlMs: 15_000,
+    forceRefresh: options.forceRefresh,
+  }).then((response) => ({
     ...response,
     data: {
       ...(response?.data || {}),
@@ -587,24 +733,28 @@ export function getMyMatches() {
 }
 
 export function confirmMatch(matchId) {
-  return apiRequest(`/matches/${matchId}/confirm`, {
+  return apiMutation(`/matches/${matchId}/confirm`, {
     method: "POST",
   });
 }
 
 export function disputeMatch(matchId, disputePayload = {}) {
-  return apiRequest(`/matches/${matchId}/dispute`, {
+  return apiMutation(`/matches/${matchId}/dispute`, {
     method: "POST",
     body: JSON.stringify(disputePayload),
   });
 }
 
 export function cancelMatch(matchId) {
-  return apiRequest(`/matches/${matchId}/cancel`, {
+  return apiMutation(`/matches/${matchId}/cancel`, {
     method: "POST",
   });
 }
 
 export function getApiAssetUrl(path) {
   return buildApiAssetUrl(path);
+}
+
+export function clearClientApiCache() {
+  clearApiCache();
 }

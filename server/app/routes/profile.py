@@ -18,6 +18,8 @@ from ..services.player_profile_service import (
 
 profile_bp = Blueprint("profile", __name__)
 MAX_PROFILE_IMAGE_LENGTH = 2_000_000
+DEFAULT_PROFILE_MATCHES_LIMIT = 25
+MAX_PROFILE_MATCHES_LIMIT = 100
 
 
 def _load_current_user():
@@ -89,6 +91,19 @@ def _load_overview_for_user(user_id):
     matches = get_matches_collection(config=current_app.config, logger=current_app.logger)
     match_documents = get_matches_for_user(user_id, matches)
     return build_profile_overview(match_documents, user_id)
+
+
+def _parse_limit_arg(default_limit=DEFAULT_PROFILE_MATCHES_LIMIT, max_limit=MAX_PROFILE_MATCHES_LIMIT):
+    raw_value = str(request.args.get("limit", "")).strip()
+    if not raw_value:
+        return default_limit
+
+    try:
+        parsed_limit = int(raw_value)
+    except ValueError:
+        return default_limit
+
+    return max(1, min(parsed_limit, max_limit))
 
 
 @profile_bp.get("/me")
@@ -236,7 +251,7 @@ def get_my_profile_matches():
             return error_response, status_code
 
         matches = get_matches_collection(config=current_app.config, logger=current_app.logger)
-        match_documents = get_matches_for_user(str(user["_id"]), matches, limit=25)
+        match_documents = get_matches_for_user(str(user["_id"]), matches, limit=_parse_limit_arg())
         serialized_matches = [
             resolve_match_view_for_user(match_document, str(user["_id"]))
             for match_document in match_documents

@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import ErrorState from "../components/ErrorState";
-import MomentumChart from "../components/MomentumChart";
 import SectionSkeleton from "../components/SectionSkeleton";
 import StatCard from "../components/StatCard";
-import TopPerformers from "../components/TopPerformers";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
-import { getDashboardActionCenter, getDashboardSummary } from "../services/api";
+import { getDashboardSummary } from "../services/api";
+
+const MomentumChart = lazy(() => import("../components/MomentumChart"));
+const TopPerformers = lazy(() => import("../components/TopPerformers"));
 
 const momentumData = [
   { id: "monday", label: "Mon", value: 42 },
@@ -66,14 +67,13 @@ export default function Dashboard() {
     setDashboardError("");
 
     try {
-      const [summaryResponse, actionCenterResponse] = await trackLoading(() =>
-        Promise.all([getDashboardSummary(), getDashboardActionCenter()])
-      );
-
-      setSummary(summaryResponse.data || emptySummary);
-      setActionCenter(actionCenterResponse.data || emptyActionCenter);
+      const response = await trackLoading(() => getDashboardSummary());
+      setSummary(normalizeDashboardSummary(response?.data?.summary || response?.data));
+      setActionCenter(normalizeActionCenter(response?.data?.action_center));
     } catch (error) {
       setDashboardError(error.message);
+      setSummary(emptySummary);
+      setActionCenter(emptyActionCenter);
     } finally {
       setIsLoadingDashboard(false);
     }
@@ -144,8 +144,21 @@ export default function Dashboard() {
       </section>
 
       <section className="dashboard-panels">
-        <MomentumChart title="Weekly Momentum" subtitle="" data={momentumData} />
-        <TopPerformers players={topPerformers} />
+        <Suspense
+          fallback={
+            <>
+              <section className="dashboard-panel">
+                <SectionSkeleton lines={5} />
+              </section>
+              <section className="dashboard-panel">
+                <SectionSkeleton lines={5} />
+              </section>
+            </>
+          }
+        >
+          <MomentumChart title="Weekly Momentum" subtitle="" data={momentumData} />
+          <TopPerformers players={topPerformers} />
+        </Suspense>
       </section>
 
       <section className="dashboard-panel">
@@ -224,6 +237,35 @@ export default function Dashboard() {
       </section>
     </DashboardLayout>
   );
+}
+
+function normalizeDashboardSummary(summary) {
+  return {
+    total_matches: summary?.total_matches ?? 0,
+    wins: summary?.wins ?? 0,
+    losses: summary?.losses ?? 0,
+    draws: summary?.draws ?? 0,
+    pending_matches: summary?.pending_matches ?? 0,
+    disputed_matches: summary?.disputed_matches ?? 0,
+    actions_required: summary?.actions_required ?? 0,
+  };
+}
+
+function normalizeActionCenter(actionCenter) {
+  return {
+    summary: {
+      actions_required: actionCenter?.summary?.actions_required ?? 0,
+      pending_confirmations: actionCenter?.summary?.pending_confirmations ?? 0,
+      disputed_matches: actionCenter?.summary?.disputed_matches ?? 0,
+      review_required_items: actionCenter?.summary?.review_required_items ?? 0,
+    },
+    actions: Array.isArray(actionCenter?.actions) ? actionCenter.actions : [],
+    items: Array.isArray(actionCenter?.items) ? actionCenter.items : [],
+    messages: {
+      has_pending_confirmations: Boolean(actionCenter?.messages?.has_pending_confirmations),
+      has_disputed_notices: Boolean(actionCenter?.messages?.has_disputed_notices),
+    },
+  };
 }
 
 function buildActionDestination(item) {

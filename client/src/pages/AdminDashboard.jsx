@@ -31,12 +31,13 @@ export default function AdminDashboard() {
       setIsLoading(true);
       setFeedback({ type: "", message: "" });
       const response = await trackLoading(() => getAdminSummary());
-      setSummary(response.data || initialSummary);
+      setSummary(normalizeAdminSummary(response?.data));
     } catch (error) {
       setFeedback({
         type: "error",
         message: error.message,
       });
+      setSummary(initialSummary);
     } finally {
       setIsLoading(false);
     }
@@ -142,6 +143,19 @@ export default function AdminDashboard() {
       )}
     </DashboardLayout>
   );
+}
+
+function normalizeAdminSummary(summary) {
+  return {
+    total_users: summary?.total_users ?? 0,
+    active_players: summary?.active_players ?? 0,
+    disabled_accounts: summary?.disabled_accounts ?? 0,
+    open_disputes: summary?.open_disputes ?? 0,
+    pending_confirmations: summary?.pending_confirmations ?? 0,
+    match_requests: summary?.match_requests ?? 0,
+    total_admins: summary?.total_admins ?? 0,
+    recent_activity: Array.isArray(summary?.recent_activity) ? summary.recent_activity : [],
+  };
 }
 
 function formatDate(value) {

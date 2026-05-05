@@ -32,8 +32,9 @@ export function PlayerDirectoryProvider({ children }) {
       setIsLoadingPlayers(true);
       setPlayersError("");
       const data = await trackLoading(() => getPlayers());
-      setPlayers(data.data.players);
-      return data.data.players;
+      const nextPlayers = Array.isArray(data?.data?.players) ? data.data.players : [];
+      setPlayers(nextPlayers);
+      return nextPlayers;
     } catch (error) {
       setPlayersError(error.message);
       setPlayers([]);

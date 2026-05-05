@@ -121,9 +121,10 @@ export default function MyMatches() {
       );
 
       setMatchesByStatus(normalizeMatchesByStatus(matchesResponse?.data));
-      setActionSummary(actionsResponse?.data || emptyActions);
+      setActionSummary(normalizeActionSummary(actionsResponse?.data));
     } catch (error) {
       setMatchesByStatus(emptyMatchesByStatus);
+      setActionSummary(emptyActions);
       setFeedback({
         type: "error",
         message: error.message,
@@ -422,7 +423,7 @@ export default function MyMatches() {
 
                         <div className="match-card-footer">
                           <div>
-                            <p className="match-card-role">Your role: {match.current_user_role.replace("_", " ")}</p>
+                            <p className="match-card-role">Your role: {formatCurrentUserRole(match.current_user_role)}</p>
                             {isSelectedMatch ? (
                               <p className="match-card-meta">Opened from your notification or action center.</p>
                             ) : null}
@@ -689,6 +690,16 @@ function normalizeMatchesByStatus(data) {
   };
 }
 
+function normalizeActionSummary(actionSummary) {
+  return {
+    match_requests_count: actionSummary?.match_requests_count ?? 0,
+    pending_confirmations_count: actionSummary?.pending_confirmations_count ?? 0,
+    disputed_matches_count: actionSummary?.disputed_matches_count ?? 0,
+    total_actions_count: actionSummary?.total_actions_count ?? 0,
+    items: Array.isArray(actionSummary?.items) ? actionSummary.items : [],
+  };
+}
+
 function formatDate(value) {
   if (!value) {
     return "Not available";
@@ -755,6 +766,14 @@ function buildTimelineLabel(match) {
     return `Result submitted ${formatDate(match.result_submitted_at)}`;
   }
   return `Created ${formatDate(match.created_at)}`;
+}
+
+function formatCurrentUserRole(value) {
+  if (!value) {
+    return "Unknown";
+  }
+
+  return String(value).replace(/_/g, " ");
 }
 
 function buildNextStepLabel(match) {

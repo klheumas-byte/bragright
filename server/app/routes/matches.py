@@ -48,6 +48,8 @@ ALLOWED_PROOF_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 ALLOWED_PROOF_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}
 MAX_PROOF_IMAGE_SIZE_BYTES = 5 * 1024 * 1024
 PROOF_UPLOAD_DIRECTORY = Path(__file__).resolve().parents[1] / "uploads" / "proofs"
+DEFAULT_MY_MATCHES_LIMIT = 200
+MAX_MY_MATCHES_LIMIT = 250
 
 
 def _json_error(message, status_code=400, **extra):
@@ -211,6 +213,19 @@ def _validate_and_store_proof_image(uploaded_file: FileStorage):
 
 def _build_proof_image_url(filename):
     return f"/api/matches/proof/{filename}"
+
+
+def _parse_limit_arg(default_limit=DEFAULT_MY_MATCHES_LIMIT, max_limit=MAX_MY_MATCHES_LIMIT):
+    raw_value = str(request.args.get("limit", "")).strip()
+    if not raw_value:
+        return default_limit
+
+    try:
+        parsed_limit = int(raw_value)
+    except ValueError:
+        return default_limit
+
+    return max(1, min(parsed_limit, max_limit))
 
 
 @matches_bp.post("/upload-proof")
@@ -670,7 +685,9 @@ def get_my_matches():
                         {"opponent_id": str(current_user["_id"])},
                     ]
                 }
-            ).sort("updated_at", DESCENDING)
+            )
+            .sort("updated_at", DESCENDING)
+            .limit(_parse_limit_arg())
         )
         serialized_matches = [serialize_match(document, str(current_user["_id"])) for document in documents]
         grouped = group_matches_by_status(serialized_matches)

@@ -47,6 +47,8 @@ from ..services.system_settings import get_system_settings, update_system_settin
 admin_bp = Blueprint("admin", __name__)
 VALID_RESOLUTION_ACTIONS = {"confirm_result", "reject_result", "override_result"}
 VALID_ROLE_UPDATES = {PLAYER_ROLE, ADMIN_ROLE}
+DEFAULT_ADMIN_LIST_LIMIT = 50
+MAX_ADMIN_LIST_LIMIT = 200
 
 
 def _require_admin_user():
@@ -346,6 +348,19 @@ def _is_last_admin_user(user_document):
 def _generate_temporary_password(length=12):
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def _parse_limit_arg(default_limit=DEFAULT_ADMIN_LIST_LIMIT, max_limit=MAX_ADMIN_LIST_LIMIT):
+    raw_value = str(request.args.get("limit", "")).strip()
+    if not raw_value:
+        return default_limit
+
+    try:
+        parsed_limit = int(raw_value)
+    except ValueError:
+        return default_limit
+
+    return max(1, min(parsed_limit, max_limit))
 
 
 def _backfill_user_status_fields():
@@ -973,7 +988,7 @@ def get_admin_activity():
             "start_date": request.args.get("start_date"),
             "end_date": request.args.get("end_date"),
         }
-        serialized = get_activity_logs(filters=filters, limit=100)
+        serialized = get_activity_logs(filters=filters, limit=_parse_limit_arg())
 
         return jsonify(
             {
@@ -1020,7 +1035,7 @@ def get_admin_logins():
             "start_date": request.args.get("start_date"),
             "end_date": request.args.get("end_date"),
         }
-        serialized = get_activity_logs(filters=filters, action_types=["login"], limit=50)
+        serialized = get_activity_logs(filters=filters, action_types=["login"], limit=_parse_limit_arg())
 
         return jsonify(
             {
@@ -1093,7 +1108,7 @@ def get_admin_matches():
             query["created_at"] = date_query
 
         matches = get_matches_collection(config=current_app.config, logger=current_app.logger)
-        documents = list(matches.find(query).sort("updated_at", DESCENDING))
+        documents = list(matches.find(query).sort("updated_at", DESCENDING).limit(_parse_limit_arg()))
 
         user_ids = []
         for document in documents:

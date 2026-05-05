@@ -1,6 +1,13 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { useLoading } from "./LoadingContext";
-import { getCurrentUser, loginUser, logoutUser, registerUser } from "../services/api";
+import {
+  AUTH_FAILURE_EVENT,
+  clearClientApiCache,
+  getCurrentUser,
+  loginUser,
+  logoutUser,
+  registerUser,
+} from "../services/api";
 
 const AuthContext = createContext(null);
 export const AUTH_STORAGE_KEY = "bragright_user";
@@ -16,6 +23,18 @@ export function AuthProvider({ children }) {
     initializeAuth();
   }, []);
 
+  useEffect(() => {
+    function handleAuthFailure() {
+      logout();
+      setIsInitializing(false);
+    }
+
+    window.addEventListener(AUTH_FAILURE_EVENT, handleAuthFailure);
+    return () => {
+      window.removeEventListener(AUTH_FAILURE_EVENT, handleAuthFailure);
+    };
+  }, [user?.id]);
+
   async function register(credentials) {
     const data = await trackLoading(() => registerUser(credentials));
     persistUser(data.user);
@@ -29,7 +48,7 @@ export function AuthProvider({ children }) {
   }
 
   async function refreshCurrentUser() {
-    const data = await trackLoading(() => getCurrentUser());
+    const data = await trackLoading(() => getCurrentUser({ forceRefresh: true }));
     persistUser(data.user);
     return data.user;
   }
@@ -40,6 +59,7 @@ export function AuthProvider({ children }) {
     }
 
     setUser(null);
+    clearClientApiCache();
     localStorage.removeItem(AUTH_STORAGE_KEY);
   }
 
@@ -52,6 +72,7 @@ export function AuthProvider({ children }) {
     }
 
     try {
+      persistUser(storedUser);
       const data = await trackLoading(() => getCurrentUser());
       persistUser(data.user);
     } catch (error) {

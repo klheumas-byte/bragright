@@ -43,8 +43,9 @@ export default function AdminActivity() {
       }
       setFeedback({ type: "", message: "" });
       const response = await trackLoading(() => getAdminActivity(nextFilters));
-      setLogs(response.data.logs || []);
+      setLogs(Array.isArray(response?.data?.logs) ? response.data.logs : []);
     } catch (error) {
+      setLogs([]);
       setFeedback({ type: "error", message: error.message });
     } finally {
       setIsLoading(false);

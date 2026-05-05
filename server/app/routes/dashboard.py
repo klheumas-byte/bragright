@@ -23,7 +23,17 @@ def dashboard_summary():
             return error_response, status_code
 
         matches = get_matches_collection(config=current_app.config, logger=current_app.logger)
-        summary = get_dashboard_summary(str(user["_id"]), matches)
+        current_user = {
+            "id": str(user["_id"]),
+            "username": user.get("username", ""),
+            "email": user.get("email", ""),
+            "role": get_user_role(user, current_app.config),
+        }
+        summary = get_dashboard_summary(
+            current_user,
+            matches,
+            is_admin=current_user["role"] == "admin",
+        )
 
         return jsonify(
             {

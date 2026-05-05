@@ -444,7 +444,7 @@ def group_matches_by_status(serialized_matches):
     return grouped
 
 
-def create_match_action_items(current_user, matches_collection, *, is_admin=False):
+def create_match_action_items(current_user, matches_collection, *, is_admin=False, related_matches=None):
     current_user_id = str(current_user.get("id") or "")
     items = []
 
@@ -470,7 +470,7 @@ def create_match_action_items(current_user, matches_collection, *, is_admin=Fals
 
         return build_action_payload(items)
 
-    related_matches = get_matches_for_user(current_user_id, matches_collection)
+    related_matches = related_matches if related_matches is not None else get_matches_for_user(current_user_id, matches_collection)
     for match in related_matches:
         players = resolve_match_players(match)
         status = resolve_actionable_status(match)

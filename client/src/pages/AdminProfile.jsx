@@ -41,12 +41,10 @@ export default function AdminProfile() {
       setIsLoading(true);
       setErrorMessage("");
       const response = await getAdminProfile();
-      setProfile({
-        ...emptyProfile,
-        ...(response?.data || {}),
-      });
+      setProfile(normalizeAdminProfile(response?.data, user));
     } catch (error) {
       setErrorMessage(error.message);
+      setProfile(normalizeAdminProfile(null, user));
     } finally {
       setIsLoading(false);
     }
@@ -170,6 +168,30 @@ export default function AdminProfile() {
       )}
     </DashboardLayout>
   );
+}
+
+function normalizeAdminProfile(profile, fallbackUser) {
+  return {
+    ...emptyProfile,
+    ...(profile || {}),
+    username: profile?.username || fallbackUser?.username || "",
+    email: profile?.email || fallbackUser?.email || "",
+    role: profile?.role || fallbackUser?.role || "admin",
+    status: profile?.status || fallbackUser?.status || "active",
+    profile_image: profile?.profile_image || fallbackUser?.profile_image || "",
+    quick_links: Array.isArray(profile?.quick_links) ? profile.quick_links : [],
+    recent_admin_activity: Array.isArray(profile?.recent_admin_activity)
+      ? profile.recent_admin_activity
+      : [],
+    access_summary: {
+      managed_users: profile?.access_summary?.managed_users ?? 0,
+      active_players: profile?.access_summary?.active_players ?? 0,
+      disabled_accounts: profile?.access_summary?.disabled_accounts ?? 0,
+      open_disputes: profile?.access_summary?.open_disputes ?? 0,
+      pending_confirmations: profile?.access_summary?.pending_confirmations ?? 0,
+      match_requests: profile?.access_summary?.match_requests ?? 0,
+    },
+  };
 }
 
 function formatDate(value) {
