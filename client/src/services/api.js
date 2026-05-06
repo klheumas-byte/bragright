@@ -106,7 +106,13 @@ function generateTemporaryPassword(length = 12) {
 }
 
 function getStoredUser() {
-  const storedUser = localStorage.getItem(AUTH_STORAGE_KEY);
+  let storedUser = null;
+
+  try {
+    storedUser = localStorage.getItem(AUTH_STORAGE_KEY);
+  } catch (error) {
+    return null;
+  }
 
   if (!storedUser) {
     return null;
@@ -115,7 +121,7 @@ function getStoredUser() {
   try {
     return JSON.parse(storedUser);
   } catch (error) {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
+    safelyRemoveStoredUser();
     return null;
   }
 }
@@ -307,13 +313,22 @@ function handleAuthFailure(status) {
   }
 
   clearApiCache();
-  localStorage.removeItem(AUTH_STORAGE_KEY);
+  safelyRemoveStoredUser();
   window.dispatchEvent(new Event(AUTH_FAILURE_EVENT));
 }
 
 function clearApiCache() {
   responseCache.clear();
   pendingGetRequests.clear();
+}
+
+function safelyRemoveStoredUser() {
+  try {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch (error) {
+    return null;
+  }
+  return null;
 }
 
 async function apiMutation(path, options) {

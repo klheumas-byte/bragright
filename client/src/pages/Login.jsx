@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import SectionSkeleton from "../components/SectionSkeleton";
 import { useAuth } from "../context/AuthContext";
 
 const initialFormState = {
@@ -11,7 +12,7 @@ export default function Login() {
   const [formData, setFormData] = useState(initialFormState);
   const [statusMessage, setStatusMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { isAuthenticated, login, user, getHomePathForRole } = useAuth();
+  const { isAuthenticated, isInitializing, login, user, getHomePathForRole } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -39,6 +40,18 @@ export default function Login() {
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  if (isInitializing) {
+    return (
+      <section className="auth-page">
+        <div className="auth-card">
+          <p className="auth-kicker">Loading</p>
+          <h1 className="auth-title">Checking your session</h1>
+          <SectionSkeleton lines={3} />
+        </div>
+      </section>
+    );
   }
 
   if (isAuthenticated) {

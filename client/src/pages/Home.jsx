@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import SectionSkeleton from "../components/SectionSkeleton";
 import { useAuth } from "../context/AuthContext";
 
 const featureCards = [
@@ -40,8 +41,22 @@ const trustPoints = [
 ];
 
 export default function Home() {
-  const { isAuthenticated, getHomePathForRole, user } = useAuth();
+  const { isAuthenticated, isInitializing, getHomePathForRole, user } = useAuth();
   const dashboardPath = getHomePathForRole(user?.role);
+
+  if (isInitializing) {
+    return (
+      <section className="landing-page">
+        <section className="landing-hero">
+          <div className="landing-hero-copy">
+            <p className="landing-eyebrow">Loading</p>
+            <h1 className="landing-title">Preparing BragRight</h1>
+            <SectionSkeleton lines={4} />
+          </div>
+        </section>
+      </section>
+    );
+  }
 
   return (
     <section className="landing-page">

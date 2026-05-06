@@ -17,7 +17,7 @@ export default function DashboardLayout({ title, description, children }) {
   const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readStoredSidebarPreference);
-  const [isMobileView, setIsMobileView] = useState(() => window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches);
+  const [isMobileView, setIsMobileView] = useState(readInitialMobileView);
   const isAdminView = location.pathname.startsWith("/admin");
   const avatarInitials = getAvatarInitials(user?.username || user?.email || "BR");
   const identityLabel = user?.username || user?.email || "BragRight Player";
@@ -29,6 +29,10 @@ export default function DashboardLayout({ title, description, children }) {
   }, [location.pathname]);
 
   useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return undefined;
+    }
+
     const mediaQuery = window.matchMedia(MOBILE_BREAKPOINT_QUERY);
 
     function handleMediaQueryChange(event) {
@@ -69,7 +73,11 @@ export default function DashboardLayout({ title, description, children }) {
   }, [isMobileView, sidebarOpen]);
 
   useEffect(() => {
-    localStorage.setItem(DESKTOP_SIDEBAR_STORAGE_KEY, JSON.stringify(sidebarCollapsed));
+    try {
+      localStorage.setItem(DESKTOP_SIDEBAR_STORAGE_KEY, JSON.stringify(sidebarCollapsed));
+    } catch (error) {
+      return;
+    }
   }, [sidebarCollapsed]);
 
   function handleSidebarToggle() {
@@ -149,4 +157,12 @@ function readStoredSidebarPreference() {
   } catch (error) {
     return false;
   }
+}
+
+function readInitialMobileView() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+
+  return window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
 }

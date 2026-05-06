@@ -16,7 +16,7 @@ export const ADMIN_HOME_PATH = "/admin/dashboard";
 
 export function AuthProvider({ children }) {
   const { trackLoading } = useLoading();
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => readStoredUser());
   const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
@@ -60,7 +60,7 @@ export function AuthProvider({ children }) {
 
     setUser(null);
     clearClientApiCache();
-    localStorage.removeItem(AUTH_STORAGE_KEY);
+    safelyRemoveStoredUser();
   }
 
   async function initializeAuth() {
@@ -85,7 +85,11 @@ export function AuthProvider({ children }) {
   function persistUser(nextUser) {
     const normalizedUser = normalizeUserRole(nextUser);
     setUser(normalizedUser);
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(normalizedUser));
+    try {
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(normalizedUser));
+    } catch (error) {
+      return;
+    }
   }
 
   const value = {
@@ -113,7 +117,13 @@ export function useAuth() {
 }
 
 function readStoredUser() {
-  const storedUser = localStorage.getItem(AUTH_STORAGE_KEY);
+  let storedUser = null;
+
+  try {
+    storedUser = localStorage.getItem(AUTH_STORAGE_KEY);
+  } catch (error) {
+    return null;
+  }
 
   if (!storedUser) {
     return null;
@@ -122,9 +132,18 @@ function readStoredUser() {
   try {
     return normalizeUserRole(JSON.parse(storedUser));
   } catch (error) {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
+    safelyRemoveStoredUser();
     return null;
   }
+}
+
+function safelyRemoveStoredUser() {
+  try {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch (error) {
+    return null;
+  }
+  return null;
 }
 
 function getHomePathForRole(role) {
