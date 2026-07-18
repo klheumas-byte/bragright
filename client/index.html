@@ -6,6 +6,16 @@
     <meta name="theme-color" content="#081118" />
     <script>
       (() => {
+        const recoveryParameter = "__bragright_spa_path";
+        const recoveryPath = new URLSearchParams(location.search).get(recoveryParameter);
+        if (
+          recoveryPath &&
+          recoveryPath.startsWith("/") &&
+          !recoveryPath.startsWith("//")
+        ) {
+          history.replaceState(null, "", recoveryPath);
+        }
+
         const key = "bragright_theme_preference";
         let preference = "system";
         try {

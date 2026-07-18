@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>Opening BragRight</title>
+  </head>
+  <body>
+    <p>Opening BragRight…</p>
+    <script>
+      (() => {
+        const target = `${location.pathname}${location.search}${location.hash}`;
+        const safeTarget = target.startsWith("/") && !target.startsWith("//") ? target : "/";
+        location.replace(`/?__bragright_spa_path=${encodeURIComponent(safeTarget)}`);
+      })();
+    </script>
+  </body>
+</html>

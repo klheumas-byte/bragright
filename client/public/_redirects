@@ -1,0 +1,2 @@
+/api/*  /api-not-found.json  404
+/*        /index.html         200

@@ -4170,7 +4170,7 @@ a {
     width: min(320px, calc(100vw - 32px));
   }
 
-  .dashboard-sidebar-open {
+  .dashboard-sidebar.dashboard-sidebar-mobile.dashboard-sidebar-open {
     transform: translateX(0);
     pointer-events: auto;
   }
@@ -5722,7 +5722,7 @@ html[data-theme] :is(.match-card-meta, .match-card-role, .match-card-timestamp, 
     z-index: var(--z-sidebar);
   }
 
-  .dashboard-sidebar-open {
+  .dashboard-sidebar.dashboard-sidebar-mobile.dashboard-sidebar-open {
     transform: translateX(0);
     pointer-events: auto;
   }

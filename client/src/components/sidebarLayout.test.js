@@ -49,6 +49,7 @@ test("mobile and coarse-pointer devices use a focus-managed drawer", () => {
   assert.match(sidebar, /event\.key !== "Tab"/);
   assert.match(sidebar, /aria-modal=\{isMobileView && isOpen \? "true" : undefined\}/);
   assert.match(css, /\.dashboard-sidebar-open\s*\{[\s\S]*?transform:\s*translateX\(0\)/);
+  assert.match(css, /\.dashboard-sidebar\.dashboard-sidebar-mobile\.dashboard-sidebar-open\s*\{[\s\S]*?transform:\s*translateX\(0\)[\s\S]*?pointer-events:\s*auto/);
 });
 
 test("gaming primitives retain focus, loading, modal, and reduced-motion safeguards", () => {

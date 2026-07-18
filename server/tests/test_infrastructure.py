@@ -221,8 +221,10 @@ def test_render_spa_routes_do_not_rewrite_api_to_index():
     render_config = (
         Path(__file__).resolve().parents[2] / "render.yaml"
     ).read_text(encoding="utf-8")
-    api_rule = render_config.index("source: /api/*")
-    fallback_rule = render_config.index("source: /*")
+    api_rule = render_config.index('source: "/api/*"')
+    fallback_rule = render_config.index('source: "/*"')
     assert api_rule < fallback_rule
-    assert "destination: /api-not-found.json" in render_config[api_rule:fallback_rule]
-    assert "destination: /index.html" in render_config[fallback_rule:]
+    assert 'destination: "/api-not-found.json"' in render_config[api_rule:fallback_rule]
+    assert 'destination: "/index.html"' in render_config[fallback_rule:]
+    assert "Cache-Control" in render_config
+    assert "no-cache, no-store, must-revalidate" in render_config

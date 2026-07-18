@@ -64,13 +64,17 @@ services:
     rootDir: client
     buildCommand: npm ci && npm run build
     staticPublishPath: ./dist
+    headers:
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
     routes:
       - type: rewrite
-        source: /api/*
-        destination: /api-not-found.json
+        source: "/api/*"
+        destination: "/api-not-found.json"
       - type: rewrite
-        source: /*
-        destination: /index.html
+        source: "/*"
+        destination: "/index.html"
     envVars:
       - key: NODE_VERSION
         value: 22.12.0

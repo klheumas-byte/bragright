@@ -6,6 +6,8 @@ const root = new URL("../", import.meta.url);
 const tokens = readFileSync(new URL("styles/tokens.css", root), "utf8");
 const css = readFileSync(new URL("index.css", root), "utf8");
 const html = readFileSync(new URL("../index.html", root), "utf8");
+const staticRedirects = readFileSync(new URL("../public/_redirects", root), "utf8");
+const staticFallback = readFileSync(new URL("../public/404.html", root), "utf8");
 const context = readFileSync(new URL("context/ThemeContext.jsx", root), "utf8");
 const switcher = readFileSync(new URL("components/ThemeSwitcher.jsx", root), "utf8");
 const trophy = readFileSync(new URL("components/TrophyWatermark.jsx", root), "utf8");
@@ -45,6 +47,14 @@ test("startup applies a persisted effective theme before the application module"
   assert.match(context, /matchMedia\(DARK_MODE_QUERY\)/);
   assert.match(context, /addEventListener\("change", handleChange\)/);
   assert.match(context, /localStorage\.setItem\(THEME_STORAGE_KEY, normalized\)/);
+});
+
+test("published nested routes recover through the SPA entry point", () => {
+  assert.match(staticRedirects, /\/\*\s+\/index\.html\s+200/);
+  assert.match(staticFallback, /__bragright_spa_path/);
+  assert.match(staticFallback, /location\.replace/);
+  assert.match(html, /history\.replaceState\(null, "", recoveryPath\)/);
+  assert.ok(html.indexOf("recoveryPath") < html.indexOf('src="/src/main.jsx"'));
 });
 
 test("theme controls expose Light, Dark, and System accessibly", () => {
