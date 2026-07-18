@@ -20,6 +20,7 @@ const profileViewModel = readFileSync(new URL("pages/profileViewModel.js", root)
 const activity = readFileSync(new URL("pages/MyActivity.jsx", root), "utf8");
 const profileHero = readFileSync(new URL("components/ProfileIdentityHeader.jsx", root), "utf8");
 const submitMatch = readFileSync(new URL("pages/SubmitMatch.jsx", root), "utf8");
+const main = readFileSync(new URL("main.jsx", root), "utf8");
 
 test("dark and light Turquoise Arena tokens match the approved palette", () => {
   assert.match(tokens, /--app-background:\s*#0e1a24/);
@@ -50,10 +51,13 @@ test("startup applies a persisted effective theme before the application module"
 });
 
 test("published nested routes recover through the SPA entry point", () => {
+  assert.match(main, /import \{ HashRouter \} from "react-router-dom"/);
+  assert.match(main, /<HashRouter>/);
+  assert.doesNotMatch(main, /BrowserRouter/);
   assert.match(staticRedirects, /\/\*\s+\/index\.html\s+200/);
   assert.match(staticFallback, /__bragright_spa_path/);
   assert.match(staticFallback, /location\.replace/);
-  assert.match(html, /history\.replaceState\(null, "", recoveryPath\)/);
+  assert.match(html, /history\.replaceState\(null, "", `\/#\$\{recoveryPath\}`\)/);
   assert.ok(html.indexOf("recoveryPath") < html.indexOf('src="/src/main.jsx"'));
 });
 
