@@ -38,6 +38,8 @@ server/.env.*
 !server/.env.example
 server/flask.log
 server/flask-error.log
+server/app/uploads/*
+!server/app/uploads/.gitkeep
 
 # Python caches
 .pytest_cache/

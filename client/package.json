@@ -6,15 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test src/services/api.auth.test.js src/context/themePreference.test.js src/pages/dashboardViewModel.test.js src/pages/profileViewModel.test.js src/pages/leaderboardViewModel.test.js src/pages/matchPresentation.test.js src/components/sidebarViewModel.test.js src/components/sidebarLayout.test.js src/components/gamingTheme.test.js src/components/themeUi.test.js src/components/activityPresentation.test.js"
   },
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0"
+    "react-router-dom": "^6.30.4"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.3",
-    "vite": "^5.4.10"
+    "@vitejs/plugin-react": "^6.0.3",
+    "vite": "^8.1.5"
   }
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import SectionSkeleton from "../components/SectionSkeleton";
+import { Alert, Button, Card, FormField, Input } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 
 const initialFormState = {
@@ -45,11 +46,11 @@ export default function Login() {
   if (isInitializing) {
     return (
       <section className="auth-page">
-        <div className="auth-card">
+        <Card as="div" variant="profile" className="auth-card">
           <p className="auth-kicker">Loading</p>
           <h1 className="auth-title">Checking your session</h1>
           <SectionSkeleton lines={3} />
-        </div>
+        </Card>
       </section>
     );
   }
@@ -60,7 +61,7 @@ export default function Login() {
 
   return (
     <section className="auth-page">
-      <div className="auth-card">
+      <Card as="div" variant="profile" className="auth-card">
         <p className="auth-kicker">Welcome back</p>
         <h1 className="auth-title">Log in to BragRight</h1>
         <p className="auth-copy">
@@ -68,9 +69,9 @@ export default function Login() {
         </p>
 
         <form className="auth-form" onSubmit={handleSubmit}>
-          <label className="form-field">
-            Email
-            <input
+          <FormField label="Email" htmlFor="login-email" required className="form-field">
+            <Input
+              id="login-email"
               name="email"
               type="email"
               value={formData.email}
@@ -78,11 +79,11 @@ export default function Login() {
               placeholder="you@example.com"
               required
             />
-          </label>
+          </FormField>
 
-          <label className="form-field">
-            Password
-            <input
+          <FormField label="Password" htmlFor="login-password" required className="form-field">
+            <Input
+              id="login-password"
               name="password"
               type="password"
               value={formData.password}
@@ -90,19 +91,28 @@ export default function Login() {
               placeholder="Enter your password"
               required
             />
-          </label>
+          </FormField>
 
-          {statusMessage ? <p className="auth-message error-text">{statusMessage}</p> : null}
+          {statusMessage ? (
+            <Alert tone="error" className="auth-message error-text">
+              {statusMessage}
+            </Alert>
+          ) : null}
 
-          <button className="auth-button" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Logging in..." : "Log in"}
-          </button>
+          <Button
+            className="auth-button"
+            type="submit"
+            isLoading={isSubmitting}
+            loadingText="Logging in..."
+          >
+            Log in
+          </Button>
         </form>
 
         <p className="auth-switch">
           Need an account? <Link to="/register">Create one</Link>
         </p>
-      </div>
+      </Card>
     </section>
   );
 }

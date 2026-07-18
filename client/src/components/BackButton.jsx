@@ -1,4 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
+import { Button } from "./ui";
 
 export default function BackButton() {
   const navigate = useNavigate();
@@ -15,8 +16,8 @@ export default function BackButton() {
   }
 
   return (
-    <button type="button" className="inline-action-button dashboard-back-button" onClick={handleBack}>
+    <Button variant="secondary" className="inline-action-button dashboard-back-button" onClick={handleBack}>
       Back
-    </button>
+    </Button>
   );
 }

@@ -1,25 +1,25 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import BackButton from "../components/BackButton";
+import { getAvatarInitials } from "../components/avatarViewModel";
 import DashboardHeader from "../components/DashboardHeader";
 import Sidebar from "../components/Sidebar";
 import { useAuth } from "../context/AuthContext";
 import { getApiAssetUrl } from "../services/api";
 
-const DESKTOP_SIDEBAR_STORAGE_KEY = "bragright_sidebar_collapsed";
-const MOBILE_BREAKPOINT_QUERY = "(max-width: 900px)";
+const MOBILE_NAVIGATION_QUERY = "(max-width: 900px), (hover: none), (pointer: coarse)";
 
 // DashboardLayout is a layout component for dashboard pages.
 // Layout components define shared page structure like sidebars, headers, and content spacing.
-export default function DashboardLayout({ title, description, children }) {
+export default function DashboardLayout({ title, description, sidebarRank, showBackButton = true, children }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const sidebarToggleRef = useRef(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(readStoredSidebarPreference);
   const [isMobileView, setIsMobileView] = useState(readInitialMobileView);
   const isAdminView = location.pathname.startsWith("/admin");
-  const avatarInitials = getAvatarInitials(user?.username || user?.email || "BR");
+  const avatarInitials = getAvatarInitials(user?.username || user?.email || "");
   const identityLabel = user?.username || user?.email || "BragRight Player";
   const identityMeta = user?.email || (isAdminView ? "Admin account" : "Competitive account");
   const avatarImage = user?.profile_image ? getApiAssetUrl(user.profile_image) : "";
@@ -33,7 +33,7 @@ export default function DashboardLayout({ title, description, children }) {
       return undefined;
     }
 
-    const mediaQuery = window.matchMedia(MOBILE_BREAKPOINT_QUERY);
+    const mediaQuery = window.matchMedia(MOBILE_NAVIGATION_QUERY);
 
     function handleMediaQueryChange(event) {
       const nextIsMobileView = event.matches;
@@ -59,8 +59,9 @@ export default function DashboardLayout({ title, description, children }) {
     document.body.classList.toggle("dashboard-mobile-menu-open", isMobileView && sidebarOpen);
 
     function handleEscape(event) {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && sidebarOpen) {
         setSidebarOpen(false);
+        window.requestAnimationFrame(() => sidebarToggleRef.current?.focus());
       }
     }
 
@@ -72,39 +73,31 @@ export default function DashboardLayout({ title, description, children }) {
     };
   }, [isMobileView, sidebarOpen]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(DESKTOP_SIDEBAR_STORAGE_KEY, JSON.stringify(sidebarCollapsed));
-    } catch (error) {
-      return;
-    }
-  }, [sidebarCollapsed]);
-
   function handleSidebarToggle() {
-    if (isMobileView) {
-      setSidebarOpen((currentValue) => !currentValue);
-      return;
-    }
-
-    setSidebarCollapsed((currentValue) => !currentValue);
+    setSidebarOpen((currentValue) => !currentValue);
   }
 
-  function handleSidebarClose() {
+  const handleSidebarClose = useCallback(() => {
     setSidebarOpen(false);
-  }
+    if (isMobileView) {
+      window.requestAnimationFrame(() => sidebarToggleRef.current?.focus());
+    }
+  }, [isMobileView]);
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     navigate("/login", { replace: true });
   }
 
   return (
-    <div className={`dashboard-shell${sidebarCollapsed && !isMobileView ? " dashboard-shell-sidebar-collapsed" : ""}`}>
+    <div className="dashboard-shell dashboard-shell-sidebar-collapsed">
       <Sidebar
         isMobileView={isMobileView}
         isOpen={isMobileView ? sidebarOpen : true}
-        isCollapsed={!isMobileView && sidebarCollapsed}
+        isCollapsed={!isMobileView}
+        currentRank={sidebarRank}
         onClose={handleSidebarClose}
+        onLogout={handleLogout}
       />
 
       {isMobileView && sidebarOpen ? (
@@ -128,13 +121,13 @@ export default function DashboardLayout({ title, description, children }) {
           onLogout={handleLogout}
           onSidebarToggle={handleSidebarToggle}
           isSidebarOpen={sidebarOpen}
-          isSidebarCollapsed={sidebarCollapsed}
           isMobileView={isMobileView}
+          sidebarButtonRef={sidebarToggleRef}
         />
         <div className="dashboard-content">
-          <div className="dashboard-content-topbar">
-            <BackButton />
-          </div>
+          {showBackButton ? (
+            <div className="dashboard-content-topbar"><BackButton /></div>
+          ) : null}
           {children}
         </div>
       </main>
@@ -142,27 +135,10 @@ export default function DashboardLayout({ title, description, children }) {
   );
 }
 
-function getAvatarInitials(value) {
-  return value
-    .split(/[\s@._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0].toUpperCase())
-    .join("");
-}
-
-function readStoredSidebarPreference() {
-  try {
-    return JSON.parse(localStorage.getItem(DESKTOP_SIDEBAR_STORAGE_KEY) || "false");
-  } catch (error) {
-    return false;
-  }
-}
-
 function readInitialMobileView() {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
     return false;
   }
 
-  return window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
+  return window.matchMedia(MOBILE_NAVIGATION_QUERY).matches;
 }

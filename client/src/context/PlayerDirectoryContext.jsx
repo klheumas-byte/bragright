@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useAuth } from "./AuthContext";
 import { useLoading } from "./LoadingContext";
 import { getPlayers } from "../services/api";
@@ -11,6 +18,25 @@ export function PlayerDirectoryProvider({ children }) {
   const [players, setPlayers] = useState([]);
   const [isLoadingPlayers, setIsLoadingPlayers] = useState(false);
   const [playersError, setPlayersError] = useState("");
+
+  const refreshPlayers = useCallback(async () => {
+    try {
+      setIsLoadingPlayers(true);
+      setPlayersError("");
+      const data = await trackLoading(() => getPlayers());
+      const nextPlayers = Array.isArray(data?.data?.players)
+        ? data.data.players
+        : [];
+      setPlayers(nextPlayers);
+      return nextPlayers;
+    } catch (error) {
+      setPlayersError(error.message);
+      setPlayers([]);
+      return [];
+    } finally {
+      setIsLoadingPlayers(false);
+    }
+  }, [trackLoading]);
 
   useEffect(() => {
     if (isInitializing) {
@@ -25,31 +51,17 @@ export function PlayerDirectoryProvider({ children }) {
     }
 
     refreshPlayers();
-  }, [isAuthenticated, isInitializing]);
+  }, [isAuthenticated, isInitializing, refreshPlayers]);
 
-  async function refreshPlayers() {
-    try {
-      setIsLoadingPlayers(true);
-      setPlayersError("");
-      const data = await trackLoading(() => getPlayers());
-      const nextPlayers = Array.isArray(data?.data?.players) ? data.data.players : [];
-      setPlayers(nextPlayers);
-      return nextPlayers;
-    } catch (error) {
-      setPlayersError(error.message);
-      setPlayers([]);
-      return [];
-    } finally {
-      setIsLoadingPlayers(false);
-    }
-  }
-
-  const value = {
-    players,
-    isLoadingPlayers,
-    playersError,
-    refreshPlayers,
-  };
+  const value = useMemo(
+    () => ({
+      players,
+      isLoadingPlayers,
+      playersError,
+      refreshPlayers,
+    }),
+    [players, isLoadingPlayers, playersError, refreshPlayers]
+  );
 
   return <PlayerDirectoryContext.Provider value={value}>{children}</PlayerDirectoryContext.Provider>;
 }

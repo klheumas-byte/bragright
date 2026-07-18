@@ -1,14 +1,20 @@
+import base64
+import binascii
 import re
 from datetime import datetime, timezone
 
-from bson import ObjectId
-from bson.errors import InvalidId
 from flask import Blueprint, current_app, jsonify, request
 from pymongo.errors import PyMongoError
 
 from ..db import describe_mongo_error, get_db_debug_snapshot, get_matches_collection, get_users_collection
-from .auth import get_current_user_from_request, serialize_user
+from .auth import get_current_user_from_request, require_player, serialize_user
+from ..services.api_security import (
+    get_json_object,
+    pagination_metadata,
+    parse_bounded_int_query,
+)
 from ..services.activity_logger import record_activity
+from ..services.dtos import player_private_dto
 from ..services.player_profile_service import (
     build_profile_overview,
     get_matches_for_user,
@@ -17,7 +23,12 @@ from ..services.player_profile_service import (
 
 
 profile_bp = Blueprint("profile", __name__)
-MAX_PROFILE_IMAGE_LENGTH = 2_000_000
+MAX_PROFILE_IMAGE_LENGTH = 240_000
+ALLOWED_PROFILE_IMAGE_PREFIXES = (
+    "data:image/jpeg;base64,",
+    "data:image/png;base64,",
+    "data:image/webp;base64,",
+)
 DEFAULT_PROFILE_MATCHES_LIMIT = 25
 MAX_PROFILE_MATCHES_LIMIT = 100
 
@@ -31,15 +42,15 @@ def _load_current_user():
 
 
 def _serialize_profile(user_document, overview=None):
-    serialized_user = serialize_user(user_document)
+    serialized_user = player_private_dto(user_document)
     return {
         "id": serialized_user["id"],
         "username": serialized_user.get("username", ""),
         "email": serialized_user.get("email", ""),
+        "role": serialized_user.get("role", "player"),
+        "status": serialized_user.get("status", "active"),
         "profile_image": serialized_user.get("profile_image") or "",
         "created_at": serialized_user.get("created_at"),
-        "last_login": serialized_user.get("last_login"),
-        "last_login_at": serialized_user.get("last_login"),
         "overview": overview or {
             "total_matches": 0,
             "wins": 0,
@@ -81,10 +92,35 @@ def _sanitize_profile_image(image_value):
     if len(image_string) > MAX_PROFILE_IMAGE_LENGTH:
         return None, "Profile image is too large."
 
-    if not image_string.startswith("data:image/"):
-        return None, "Profile image must be a valid base64 data URL."
+    if not image_string.startswith(ALLOWED_PROFILE_IMAGE_PREFIXES):
+        return None, "Profile image must be a PNG, JPEG, or WebP base64 data URL."
+
+    encoded_content = image_string.split(",", 1)[1]
+    try:
+        decoded_content = base64.b64decode(encoded_content, validate=True)
+    except (binascii.Error, ValueError):
+        return None, "Profile image data is not valid base64."
+
+    if not decoded_content:
+        return None, "Profile image data cannot be empty."
+
+    if not _profile_image_signature_matches(image_string, decoded_content):
+        return None, "Profile image content does not match its PNG, JPEG, or WebP type."
 
     return image_string, None
+
+
+def _profile_image_signature_matches(image_string, content):
+    if image_string.startswith("data:image/png;"):
+        return content.startswith(b"\x89PNG\r\n\x1a\n")
+
+    if image_string.startswith("data:image/jpeg;"):
+        return content.startswith(b"\xff\xd8\xff")
+
+    if image_string.startswith("data:image/webp;"):
+        return len(content) >= 12 and content.startswith(b"RIFF") and content[8:12] == b"WEBP"
+
+    return False
 
 
 def _load_overview_for_user(user_id):
@@ -94,19 +130,15 @@ def _load_overview_for_user(user_id):
 
 
 def _parse_limit_arg(default_limit=DEFAULT_PROFILE_MATCHES_LIMIT, max_limit=MAX_PROFILE_MATCHES_LIMIT):
-    raw_value = str(request.args.get("limit", "")).strip()
-    if not raw_value:
-        return default_limit
-
-    try:
-        parsed_limit = int(raw_value)
-    except ValueError:
-        return default_limit
-
-    return max(1, min(parsed_limit, max_limit))
+    return parse_bounded_int_query(
+        "limit",
+        default=default_limit,
+        maximum=max_limit,
+    )
 
 
 @profile_bp.get("/me")
+@require_player
 def get_my_profile():
     try:
         user, error_response, status_code = _load_current_user()
@@ -143,25 +175,19 @@ def get_my_profile():
 
 
 @profile_bp.post("/update")
+@require_player
 def update_profile():
     try:
         user, error_response, status_code = _load_current_user()
         if error_response:
             return error_response, status_code
 
-        payload = request.get_json(silent=True) or {}
-        user_id = str(payload.get("user_id", "")).strip()
-
-        if not user_id:
-            return jsonify({"success": False, "message": "User ID is required."}), 400
-
-        if user_id != str(user["_id"]):
-            return jsonify({"success": False, "message": "You can only update your own profile."}), 403
-
-        try:
-            user_object_id = ObjectId(user_id)
-        except InvalidId:
-            return jsonify({"success": False, "message": "User ID is invalid."}), 400
+        payload, body_error = get_json_object(
+            allowed_fields={"username", "image"}
+        )
+        if body_error:
+            return body_error
+        user_object_id = user["_id"]
 
         next_username, username_error = _sanitize_username(payload.get("username"))
         if username_error:
@@ -239,11 +265,13 @@ def update_profile():
 
 
 @profile_bp.patch("/me")
+@require_player
 def update_my_profile_alias():
     return update_profile()
 
 
 @profile_bp.get("/me/matches")
+@require_player
 def get_my_profile_matches():
     try:
         user, error_response, status_code = _load_current_user()
@@ -251,7 +279,30 @@ def get_my_profile_matches():
             return error_response, status_code
 
         matches = get_matches_collection(config=current_app.config, logger=current_app.logger)
-        match_documents = get_matches_for_user(str(user["_id"]), matches, limit=_parse_limit_arg())
+        limit, limit_error = _parse_limit_arg()
+        if limit_error:
+            return limit_error
+        page, page_error = parse_bounded_int_query(
+            "page", default=1, maximum=100000
+        )
+        if page_error:
+            return page_error
+        user_id = str(user["_id"])
+        match_query = {
+            "$or": [
+                {"player_one_id": user_id},
+                {"player_two_id": user_id},
+                {"submitted_by": user_id},
+                {"opponent_id": user_id},
+            ]
+        }
+        total = matches.count_documents(match_query)
+        match_documents = get_matches_for_user(
+            user_id,
+            matches,
+            limit=limit,
+            skip=(page - 1) * limit,
+        )
         serialized_matches = [
             resolve_match_view_for_user(match_document, str(user["_id"]))
             for match_document in match_documents
@@ -262,6 +313,7 @@ def get_my_profile_matches():
                 "success": True,
                 "data": {
                     "matches": serialized_matches,
+                    **pagination_metadata(page=page, limit=limit, total=total),
                 },
             }
         ), 200

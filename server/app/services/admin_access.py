@@ -28,14 +28,6 @@ def get_user_role(user, config):
     if not user:
         return PLAYER_ROLE
 
-    user_email = str(user.get("email", "")).strip().lower()
-
-    # Bootstrap admin emails should always resolve to admin during this phase,
-    # even if the account was initially created as a normal player before the
-    # persisted role was upgraded.
-    if is_bootstrap_admin_email(user_email, config):
-        return ADMIN_ROLE
-
     stored_role = str(user.get("role", "")).strip().lower()
     if stored_role in VALID_USER_ROLES:
         return stored_role

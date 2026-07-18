@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import SidebarIcon from "./SidebarIcon";
+import { ThemeSwitcher } from "./ThemeSwitcher";
 
 // DashboardHeader is the top card for dashboard pages.
 // It keeps the page label, title, and avatar together in one reusable section.
@@ -13,11 +15,16 @@ export default function DashboardHeader({
   onLogout,
   onSidebarToggle,
   isSidebarOpen,
-  isSidebarCollapsed,
   isMobileView,
+  sidebarButtonRef,
 }) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const userMenuRef = useRef(null);
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [avatarImage]);
 
   useEffect(() => {
     function handlePointerDown(event) {
@@ -41,28 +48,27 @@ export default function DashboardHeader({
     };
   }, []);
 
-  const sidebarButtonLabel = isMobileView
-    ? isSidebarOpen
-      ? "Close navigation menu"
-      : "Open navigation menu"
-    : isSidebarCollapsed
-      ? "Expand sidebar"
-      : "Collapse sidebar";
+  const sidebarButtonLabel = isSidebarOpen
+    ? "Close navigation menu"
+    : "Open navigation menu";
 
   return (
     <header className="dashboard-header">
       <div className="dashboard-header-main">
-        <button
-          type="button"
-          className={`dashboard-menu-button${!isMobileView && isSidebarCollapsed ? " dashboard-menu-button-active" : ""}`}
-          aria-label={sidebarButtonLabel}
-          aria-expanded={isMobileView ? isSidebarOpen : !isSidebarCollapsed}
-          onClick={onSidebarToggle}
-        >
-          <span />
-          <span />
-          <span />
-        </button>
+        {isMobileView ? (
+          <button
+            ref={sidebarButtonRef}
+            type="button"
+            className="dashboard-menu-button"
+            aria-label={sidebarButtonLabel}
+            aria-expanded={isSidebarOpen}
+            onClick={onSidebarToggle}
+          >
+            <span />
+            <span />
+            <span />
+          </button>
+        ) : null}
 
         <div>
           <p className="dashboard-header-label">{label}</p>
@@ -71,7 +77,9 @@ export default function DashboardHeader({
         </div>
       </div>
 
-      <div className="dashboard-user-area" ref={userMenuRef}>
+      <div className="dashboard-header-actions">
+        <ThemeSwitcher />
+        <div className="dashboard-user-area" ref={userMenuRef}>
         <button
           type="button"
           className="dashboard-user-trigger"
@@ -80,8 +88,14 @@ export default function DashboardHeader({
           onClick={() => setIsUserMenuOpen((currentValue) => !currentValue)}
         >
           <div className="dashboard-user-meta">
-            <div className="dashboard-avatar" aria-label="Current user">
-              {avatarImage ? <img src={avatarImage} alt="" className="dashboard-avatar-image" /> : avatarInitials}
+            <div className="dashboard-avatar" role={avatarImage && !avatarFailed ? undefined : "img"} aria-label={avatarImage && !avatarFailed ? undefined : `${identityLabel} avatar fallback`}>
+              {avatarImage && !avatarFailed ? (
+                <img src={avatarImage} alt={`${identityLabel} profile avatar`} className="dashboard-avatar-image" onError={() => setAvatarFailed(true)} />
+              ) : avatarInitials ? (
+                <span aria-hidden="true">{avatarInitials}</span>
+              ) : (
+                <SidebarIcon name="profile" decorative className="dashboard-avatar-default-icon" />
+              )}
             </div>
             <div>
               <p className="dashboard-user-label">Signed in</p>
@@ -110,6 +124,7 @@ export default function DashboardHeader({
             </button>
           </div>
         ) : null}
+        </div>
       </div>
     </header>
   );

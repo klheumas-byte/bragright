@@ -1,829 +1,659 @@
-import { useEffect, useMemo, useState } from "react";
-import ButtonLoadingText from "../components/ButtonLoadingText";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import ActivityList from "../components/ActivityList";
+import ActivitySkeleton from "../components/ActivitySkeleton";
+import CompetitiveSummary from "../components/CompetitiveSummary";
+import CompetitiveBadge from "../components/CompetitiveBadge";
+import ErrorState from "../components/ErrorState";
+import ProfileAvatar from "../components/ProfileAvatar";
+import ProfileIdentityHeader from "../components/ProfileIdentityHeader";
+import ProfileMatchList from "../components/ProfileMatchList";
+import SectionLoader from "../components/SectionLoader";
 import SectionSkeleton from "../components/SectionSkeleton";
+import SidebarIcon from "../components/SidebarIcon";
+import SuccessAlert from "../components/SuccessAlert";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  Input,
+  PageSection,
+} from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
 import {
-  getApiAssetUrl,
+  getLeaderboard,
   getMyActivity,
   getMyProfile,
   getMyProfileMatches,
   updateMyProfile,
 } from "../services/api";
+import {
+  buildOwnerCompetitiveStats,
+  formatProfileDate,
+  normalizeOwnerMatches,
+  normalizeOwnerProfile,
+  validateProfileAvatarFile,
+} from "./profileViewModel";
 
 const profileTabs = [
   { id: "overview", label: "Overview" },
-  { id: "matches", label: "Matches" },
+  { id: "matches", label: "Match history" },
   { id: "activity", label: "Activity" },
 ];
-
-const emptyProfile = {
-  id: "",
-  username: "",
-  email: "",
-  profile_image: "",
-  created_at: null,
-  last_login: null,
-  overview: {
-    total_matches: 0,
-    wins: 0,
-    losses: 0,
-    draws: 0,
-    pending_matches: 0,
-    disputed_matches: 0,
-    recent_summary: [],
-  },
-};
 
 export default function Profile() {
   const { user: authUser, refreshCurrentUser } = useAuth();
   const { trackLoading } = useLoading();
+  const navigate = useNavigate();
+  const mountedRef = useRef(true);
+  const tabRefs = useRef([]);
+  const requestIdsRef = useRef({ profile: 0, ranking: 0, matches: 0, activity: 0 });
+  const [profile, setProfile] = useState(() =>
+    normalizeOwnerProfile(null, authUser)
+  );
+  const [ranking, setRanking] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
-  const [profile, setProfile] = useState(buildFallbackProfile(authUser));
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  const [profileError, setProfileError] = useState("");
   const [matches, setMatches] = useState([]);
+  const [matchPagination, setMatchPagination] = useState({
+    page: 1,
+    limit: 8,
+    total: 0,
+    pages: 0,
+  });
+  const [isLoadingMatches, setIsLoadingMatches] = useState(false);
+  const [matchesError, setMatchesError] = useState("");
+  const [hasLoadedMatches, setHasLoadedMatches] = useState(false);
   const [activity, setActivity] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingTab, setIsLoadingTab] = useState(false);
+  const [isLoadingActivity, setIsLoadingActivity] = useState(false);
+  const [activityError, setActivityError] = useState("");
+  const [hasLoadedActivity, setHasLoadedActivity] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [feedback, setFeedback] = useState({ type: "", message: "" });
-  const [hasLoadedMatches, setHasLoadedMatches] = useState(false);
-  const [hasLoadedActivity, setHasLoadedActivity] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState({
+    type: "",
+    message: "",
+  });
+  const [avatarError, setAvatarError] = useState("");
   const [editForm, setEditForm] = useState({
-    username: "",
-    image: "",
+    username: authUser?.username || "",
+    image: authUser?.profile_image || "",
   });
 
   useEffect(() => {
-    loadProfileOverview();
+    mountedRef.current = true;
+    loadProfile();
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
     if (!authUser) {
       return;
     }
-
-    const fallbackProfile = buildFallbackProfile(authUser);
-    setProfile((currentProfile) => mergeProfile(currentProfile, fallbackProfile));
-    setEditForm((currentForm) => ({
-      ...currentForm,
-      username: fallbackProfile.username,
-      image: fallbackProfile.profile_image,
-    }));
+    setProfile((current) => normalizeOwnerProfile(current, authUser));
+    loadRanking();
   }, [authUser]);
 
   useEffect(() => {
     if (activeTab === "matches" && !hasLoadedMatches) {
-      loadMatchesTab();
+      loadMatches({ page: 1 });
     }
-
     if (activeTab === "activity" && !hasLoadedActivity) {
-      loadActivityTab();
+      loadActivity();
     }
   }, [activeTab, hasLoadedActivity, hasLoadedMatches]);
 
-  const statCards = useMemo(
-    () => [
-      {
-        id: "total_matches",
-        label: "Total Matches",
-        value: profile.overview.total_matches,
-        subtitle: "All competitive records tied to your account",
-      },
-      {
-        id: "wins",
-        label: "Wins",
-        value: profile.overview.wins,
-        subtitle: "Confirmed wins credited to you",
-      },
-      {
-        id: "losses",
-        label: "Losses",
-        value: profile.overview.losses,
-        subtitle: "Confirmed results that went the other way",
-      },
-      {
-        id: "draws",
-        label: "Draws",
-        value: profile.overview.draws,
-        subtitle: "Confirmed matches that finished level",
-      },
-      {
-        id: "pending_matches",
-        label: "Pending",
-        value: profile.overview.pending_matches,
-        subtitle: "Matches still waiting on review or confirmation",
-      },
-      {
-        id: "disputed_matches",
-        label: "Disputed",
-        value: profile.overview.disputed_matches,
-        subtitle: "Results that still need trust resolution",
-      },
-    ],
-    [profile]
+  const stats = useMemo(
+    () => buildOwnerCompetitiveStats(profile, ranking),
+    [profile, ranking]
   );
 
-  async function loadProfileOverview(options = {}) {
+  async function loadProfile({ forceRefresh = false } = {}) {
+    const requestId = ++requestIdsRef.current.profile;
+    setIsLoadingProfile(true);
+    setProfileError("");
     try {
-      setIsLoading(true);
-      setFeedback({ type: "", message: "" });
-
-      const profileResponse = await trackLoading(() => getMyProfile({ forceRefresh: options.forceRefresh }));
-      const nextProfile = normalizeProfile(profileResponse?.data, authUser);
+      const response = await trackLoading(() =>
+        getMyProfile({ forceRefresh })
+      );
+      if (!isCurrentRequest("profile", requestId)) return;
+      const nextProfile = normalizeOwnerProfile(response?.data, authUser);
       setProfile(nextProfile);
       setEditForm({
         username: nextProfile.username,
         image: nextProfile.profile_image,
       });
     } catch (error) {
-      const fallbackProfile = buildFallbackProfile(authUser);
-      setProfile(fallbackProfile);
-      setEditForm({
-        username: fallbackProfile.username,
-        image: fallbackProfile.profile_image,
-      });
-      setFeedback({
-        type: "error",
-        message: error.message || "Profile could not be loaded.",
-      });
+      if (!isCurrentRequest("profile", requestId)) return;
+      setProfile(normalizeOwnerProfile(null, authUser));
+      setProfileError(error.message || "Profile could not be loaded.");
     } finally {
-      setIsLoading(false);
+      if (isCurrentRequest("profile", requestId)) {
+        setIsLoadingProfile(false);
+      }
     }
   }
 
-  async function loadMatchesTab(options = {}) {
+  async function loadRanking({ forceRefresh = false } = {}) {
+    const requestId = ++requestIdsRef.current.ranking;
     try {
-      setIsLoadingTab(true);
-      const response = await trackLoading(() => getMyProfileMatches({ forceRefresh: options.forceRefresh }));
-      setMatches(normalizeMatches(response?.data?.matches));
+      const response = await trackLoading(() =>
+        getLeaderboard({
+          page: 1,
+          limit: 20,
+          playerId: authUser?.id,
+          forceRefresh,
+        })
+      );
+      if (!isCurrentRequest("ranking", requestId)) return;
+      const entries = Array.isArray(response?.data?.leaderboard)
+        ? response.data.leaderboard
+        : [];
+      setRanking(
+        response?.data?.current_player ||
+          entries.find((entry) => entry.id === authUser?.id) ||
+          null
+      );
+    } catch (error) {
+      if (isCurrentRequest("ranking", requestId)) {
+        setRanking(null);
+      }
+    }
+  }
+
+  async function loadMatches({
+    page = matchPagination.page,
+    forceRefresh = false,
+  } = {}) {
+    const requestId = ++requestIdsRef.current.matches;
+    setIsLoadingMatches(true);
+    setMatchesError("");
+    try {
+      const response = await trackLoading(() =>
+        getMyProfileMatches({ page, limit: 8, forceRefresh })
+      );
+      if (!isCurrentRequest("matches", requestId)) return;
+      setMatches(normalizeOwnerMatches(response?.data?.matches));
+      setMatchPagination({
+        page: response?.data?.page ?? page,
+        limit: response?.data?.limit ?? 8,
+        total: response?.data?.total ?? response?.data?.matches?.length ?? 0,
+        pages: response?.data?.pages ?? (response?.data?.matches?.length ? 1 : 0),
+      });
       setHasLoadedMatches(true);
     } catch (error) {
+      if (!isCurrentRequest("matches", requestId)) return;
       setMatches([]);
-      setFeedback({
-        type: "error",
-        message: error.message || "Match history could not be loaded.",
-      });
+      setMatchesError(error.message || "Match history could not be loaded.");
     } finally {
-      setIsLoadingTab(false);
+      if (isCurrentRequest("matches", requestId)) {
+        setIsLoadingMatches(false);
+      }
     }
   }
 
-  async function loadActivityTab(options = {}) {
+  async function loadActivity({ forceRefresh = false } = {}) {
+    const requestId = ++requestIdsRef.current.activity;
+    setIsLoadingActivity(true);
+    setActivityError("");
     try {
-      setIsLoadingTab(true);
-      const response = await trackLoading(() => getMyActivity({ forceRefresh: options.forceRefresh }));
-      setActivity(normalizeActivityLogs(response?.data?.logs));
+      const response = await trackLoading(() =>
+        getMyActivity({ page: 1, limit: 10, forceRefresh })
+      );
+      if (!isCurrentRequest("activity", requestId)) return;
+      setActivity(
+        Array.isArray(response?.data?.logs)
+          ? response.data.logs.slice(0, 10)
+          : []
+      );
       setHasLoadedActivity(true);
     } catch (error) {
+      if (!isCurrentRequest("activity", requestId)) return;
       setActivity([]);
-      setFeedback({
-        type: "error",
-        message: error.message || "Activity could not be loaded.",
-      });
+      setActivityError(error.message || "Activity could not be loaded.");
     } finally {
-      setIsLoadingTab(false);
+      if (isCurrentRequest("activity", requestId)) {
+        setIsLoadingActivity(false);
+      }
     }
   }
 
-  async function loadProfilePage() {
-    try {
-      setFeedback({ type: "", message: "" });
-      await loadProfileOverview({ forceRefresh: true });
+  function isCurrentRequest(section, requestId) {
+    return (
+      mountedRef.current && requestIdsRef.current[section] === requestId
+    );
+  }
 
-      if (hasLoadedMatches) {
-        await loadMatchesTab({ forceRefresh: true });
-      }
+  function beginEditing() {
+    setIsEditing(true);
+    setAvatarError("");
+    setSaveFeedback({ type: "", message: "" });
+    setEditForm({
+      username: profile.username,
+      image: profile.profile_image,
+    });
+  }
 
-      if (hasLoadedActivity) {
-        await loadActivityTab({ forceRefresh: true });
-      }
-    } catch (error) {
-      if (!error?.message) {
-        const fallbackProfile = buildFallbackProfile(authUser);
-        setProfile(fallbackProfile);
-        setEditForm({
-          username: fallbackProfile.username,
-          image: fallbackProfile.profile_image,
-        });
-        setFeedback({
-          type: "error",
-          message: "Profile could not be loaded.",
-        });
-      }
-    }
+  function cancelEditing() {
+    setIsEditing(false);
+    setAvatarError("");
+    setEditForm({
+      username: profile.username,
+      image: profile.profile_image,
+    });
   }
 
   async function handleImageChange(event) {
     const file = event.target.files?.[0];
-
-    if (!file) {
+    if (!file) return;
+    const validationError = validateProfileAvatarFile(file);
+    if (validationError) {
+      setAvatarError(validationError);
+      event.target.value = "";
       return;
     }
-
     try {
       const image = await readFileAsDataUrl(file);
-      setEditForm((currentForm) => ({
-        ...currentForm,
-        image,
-      }));
+      setAvatarError("");
+      setEditForm((current) => ({ ...current, image }));
     } catch (error) {
-      setFeedback({ type: "error", message: "Could not read the selected image." });
+      setAvatarError("Could not read the selected image.");
     }
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
     setIsSaving(true);
-    setFeedback({ type: "", message: "" });
-
+    setSaveFeedback({ type: "", message: "" });
     try {
       const response = await trackLoading(() =>
         updateMyProfile({
-          userId: profile.id || authUser?.id || "",
           username: editForm.username,
           image: editForm.image,
         })
       );
-
-      const nextProfile = normalizeProfile(response?.data, authUser);
+      const nextProfile = normalizeOwnerProfile(response?.data, authUser);
       setProfile(nextProfile);
       setEditForm({
         username: nextProfile.username,
         image: nextProfile.profile_image,
       });
       setIsEditing(false);
-      setFeedback({
+      setSaveFeedback({
         type: "success",
         message: response?.message || "Profile updated successfully.",
       });
-
       await refreshCurrentUser();
-      await loadProfilePage();
     } catch (error) {
-      setFeedback({
+      setSaveFeedback({
         type: "error",
         message: error.message || "Could not update your profile.",
       });
     } finally {
-      setIsSaving(false);
+      if (mountedRef.current) {
+        setIsSaving(false);
+      }
     }
   }
 
-  const displayImage = getApiAssetUrl(isEditing ? editForm.image : profile.profile_image);
-
-  if (isLoading && !profile?.id) {
-    return (
-      <DashboardLayout title="My Profile" description="">
-        <section className="profile-hero-card">
-          <SectionSkeleton lines={6} />
-        </section>
-      </DashboardLayout>
-    );
+  function handleTabKeyDown(event, tabIndex) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+      return;
+    }
+    event.preventDefault();
+    let nextIndex = tabIndex;
+    if (event.key === "ArrowRight") {
+      nextIndex = (tabIndex + 1) % profileTabs.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex = (tabIndex - 1 + profileTabs.length) % profileTabs.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = profileTabs.length - 1;
+    }
+    setActiveTab(profileTabs[nextIndex].id);
+    tabRefs.current[nextIndex]?.focus();
   }
 
   return (
-    <DashboardLayout title="My Profile" description="">
-      <section className="profile-hero-card">
-        {isLoading ? (
-          <SectionSkeleton lines={6} />
-        ) : (
-          <div className="profile-hero-layout">
-            <div className="profile-identity-block">
-              <div className="profile-avatar profile-avatar-large">
-                {displayImage ? (
-                  <img
-                    src={displayImage}
-                    alt={`${profile.username || "Player"} profile`}
-                    className="profile-avatar-image"
-                  />
-                ) : (
-                  getAvatarInitials(profile.username || profile.email || "BR")
-                )}
-              </div>
+    <DashboardLayout
+      title="My Profile"
+      description="Your competitive identity, record, and match history."
+      sidebarRank={ranking?.rank}
+    >
+      <ErrorState
+        message={profileError}
+        onRetry={() => loadProfile({ forceRefresh: true })}
+        retryLabel="Retry profile"
+      />
 
-              <div className="profile-identity-copy">
-                <h2 className="profile-hero-title">{profile.username || "BragRight Player"}</h2>
-                <p className="profile-hero-email">{profile.email || "-"}</p>
-              </div>
-            </div>
+      <ProfileIdentityHeader
+        name={profile.username || "BragRight Player"}
+        image={profile.profile_image}
+        subtitle={profile.email}
+        label="Your player identity"
+        isLoading={isLoadingProfile}
+        loader={<SectionSkeleton lines={6} />}
+        badges={
+          <>
+            <Badge tone={profile.status === "active" ? "success" : "neutral"}>
+              {profile.status}
+            </Badge>
+            <Badge tone="neutral">{profile.role}</Badge>
+            {ranking ? <CompetitiveBadge kind="rank" value={ranking.rank} /> : null}
+            {ranking ? <CompetitiveBadge kind="points" value={ranking.points} /> : null}
+          </>
+        }
+        metadata={[
+          {
+            id: "member-since",
+            label: "Member since",
+            value: formatProfileDate(profile.created_at),
+          },
+          {
+            id: "matches",
+            label: "Recorded matches",
+            value: profile.overview.total_matches,
+          },
+          {
+            id: "record",
+            label: "Confirmed record",
+            value: `${profile.overview.wins}-${profile.overview.losses}-${profile.overview.draws}`,
+          },
+        ]}
+        actions={
+          <>
+            <Button variant="primary" size="sm" onClick={beginEditing}>
+              <SidebarIcon name="profile" decorative /> Edit profile
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setActiveTab("matches")}
+            >
+              Match history
+            </Button>
+            <Button as={Link} to="/leaderboard" variant="ghost" size="sm">
+              Leaderboard
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setActiveTab("activity")}
+            >
+              Activity
+            </Button>
+          </>
+        }
+      />
 
-            <div className="profile-meta-grid">
-              <div className="profile-meta-card">
-                <span className="match-score-label">Date joined</span>
-                <strong>{formatDate(profile.created_at)}</strong>
-              </div>
-              <div className="profile-meta-card">
-                <span className="match-score-label">Last login</span>
-                <strong>{formatDate(profile.last_login)}</strong>
-              </div>
-              <div className="profile-meta-card">
-                <span className="match-score-label">Role</span>
-                <strong>{authUser?.role || "player"}</strong>
-              </div>
-              <div className="profile-meta-card">
-                <span className="match-score-label">Status</span>
-                <strong>{authUser?.status || "active"}</strong>
-              </div>
-              <div className="profile-meta-card">
-                <span className="match-score-label">Actions</span>
-                <button
-                  type="button"
-                  className="inline-action-button"
-                  onClick={() => {
-                    setIsEditing((currentValue) => !currentValue);
-                    setFeedback({ type: "", message: "" });
-                    setEditForm({
-                      username: profile.username,
-                      image: profile.profile_image,
-                    });
-                  }}
-                >
-                  {isEditing ? "Cancel" : "Edit Profile"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {feedback.message ? (
-        <div className={`match-feedback match-feedback-${feedback.type}`}>
-          <p>{feedback.message}</p>
-        </div>
-      ) : null}
+      <SuccessAlert
+        message={saveFeedback.type === "success" ? saveFeedback.message : ""}
+      />
+      <ErrorState
+        message={saveFeedback.type === "error" ? saveFeedback.message : ""}
+        onRetry={beginEditing}
+        retryLabel="Review profile"
+      />
 
       {isEditing ? (
-        <section className="dashboard-panel profile-editor-panel">
+        <Card
+          variant="profile"
+          className="dashboard-panel profile-editor-panel"
+          aria-labelledby="profile-editor-title"
+        >
+          <div className="panel-header">
+            <div>
+              <p className="panel-kicker">Owner controls</p>
+              <h2 className="panel-title" id="profile-editor-title">
+                Edit profile
+              </h2>
+            </div>
+          </div>
           <form className="profile-editor-form" onSubmit={handleSubmit}>
-            <label className="form-field">
-              <span>Username</span>
-              <input
-                type="text"
-                value={editForm.username}
-                onChange={(event) =>
-                  setEditForm((currentForm) => ({
-                    ...currentForm,
-                    username: event.target.value,
-                  }))
-                }
-                maxLength={32}
-              />
-            </label>
+            <Field
+              label="Username"
+              id="profile-username"
+              value={editForm.username}
+              onChange={(event) =>
+                setEditForm((current) => ({
+                  ...current,
+                  username: event.target.value,
+                }))
+              }
+              required
+              minLength={3}
+              maxLength={32}
+              autoComplete="username"
+              description="3–32 letters, numbers, spaces, dots, underscores, or hyphens."
+            />
 
-            <label className="form-field">
-              <span>Profile image</span>
-              <input
+            <div className="profile-avatar-editor">
+              <ProfileAvatar
+                image={editForm.image}
+                name={editForm.username || profile.username}
+              />
+              <Field
+                label="Profile image"
+                id="profile-image"
+                control={Input}
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
                 onChange={handleImageChange}
+                error={avatarError}
+                description="PNG, JPEG, or WebP. Maximum 180 KB."
               />
-            </label>
+            </div>
 
             <div className="profile-editor-actions">
-              <button type="submit" className="action-card-link" disabled={isSaving}>
-                <ButtonLoadingText isLoading={isSaving} loadingText="Saving...">
-                  Save
-                </ButtonLoadingText>
-              </button>
+              {editForm.image ? (
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    setEditForm((current) => ({ ...current, image: "" }))
+                  }
+                >
+                  Remove avatar
+                </Button>
+              ) : null}
+              <Button variant="secondary" onClick={cancelEditing}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                isLoading={isSaving}
+                loadingText="Saving..."
+                disabled={Boolean(avatarError)}
+              >
+                Save profile
+              </Button>
             </div>
           </form>
-        </section>
+        </Card>
       ) : null}
 
-      <section className="profile-tabs-panel">
+      <section className="profile-tabs-panel" aria-label="Profile content">
         <div className="profile-tab-row" role="tablist" aria-label="Profile sections">
-          {profileTabs.map((tab) => (
+          {profileTabs.map((tab, index) => (
             <button
               key={tab.id}
+              ref={(node) => {
+                tabRefs.current[index] = node;
+              }}
+              id={`profile-tab-${tab.id}`}
               type="button"
               role="tab"
               aria-selected={activeTab === tab.id}
-              className={`profile-tab-button${activeTab === tab.id ? " profile-tab-button-active" : ""}`}
+              aria-controls={`profile-panel-${tab.id}`}
+              tabIndex={activeTab === tab.id ? 0 : -1}
+              className={`profile-tab-button${
+                activeTab === tab.id ? " profile-tab-button-active" : ""
+              }`}
               onClick={() => setActiveTab(tab.id)}
+              onKeyDown={(event) => handleTabKeyDown(event, index)}
             >
               {tab.label}
             </button>
           ))}
         </div>
 
-        {isLoading ? (
-          <SectionSkeleton lines={8} />
-        ) : activeTab === "overview" ? (
-          <div className="profile-tab-content">
-            <section className="profile-stat-grid">
-              {statCards.map((card) => (
-                <article key={card.id} className="profile-stat-card">
-                  <p className="panel-kicker">{card.label}</p>
-                  <strong className="profile-stat-value">{card.value}</strong>
-                  <p className="profile-stat-copy">{card.subtitle}</p>
-                </article>
-              ))}
-            </section>
+        <div
+          id={`profile-panel-${activeTab}`}
+          role="tabpanel"
+          aria-labelledby={`profile-tab-${activeTab}`}
+          tabIndex="0"
+          className="profile-tab-content"
+        >
+          {activeTab === "overview" ? (
+            <>
+              <PageSection
+                title="Competitive summary"
+                description="Dashboard-aligned backend statistics, with confirmed leaderboard context where available."
+              >
+                {isLoadingProfile ? (
+                  <SectionLoader lines={5} message="Loading profile statistics..." />
+                ) : (
+                  <CompetitiveSummary stats={stats} />
+                )}
+              </PageSection>
 
-            <section className="dashboard-panel profile-summary-panel">
-              <div className="panel-header">
-                <div>
-                  <p className="panel-kicker">Summary</p>
-                  <h2 className="panel-title">Recent results</h2>
-                </div>
-              </div>
-
-              {profile.overview.recent_summary.length ? (
-                <div className="profile-recent-list">
-                  {profile.overview.recent_summary.map((match) => (
-                    <article key={match.id} className="profile-recent-card">
-                      <div>
-                        <p className="profile-recent-title">
-                          {formatResultLabel(match.result_label)} vs {match.opponent.username}
-                        </p>
-                        <p className="match-card-meta">
-                          {match.score_line || "-"} | {match.display_status}
-                        </p>
-                      </div>
-                      <p className="match-card-meta">{formatDate(match.played_at)}</p>
-                    </article>
-                  ))}
-                </div>
+              <PageSection
+                title="Recent results"
+                description="Your three most recent match records."
+                actions={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setActiveTab("matches")}
+                  >
+                    Full match history
+                  </Button>
+                }
+              >
+                {profile.overview.recent_summary.length ? (
+                  <ProfileMatchList
+                    matches={profile.overview.recent_summary}
+                    profileName="You"
+                  />
+                ) : (
+                  <Card variant="empty" className="dashboard-panel">
+                    <EmptyState
+                      title="No battles yet"
+                      description="Your recent match summary will appear after a match is recorded."
+                      actionLabel="Submit a match"
+                      onAction={() => navigate("/dashboard/submit-match")}
+                    />
+                  </Card>
+                )}
+              </PageSection>
+            </>
+          ) : activeTab === "matches" ? (
+            <PageSection
+              title="Match history"
+              description={`${matchPagination.total} recorded ${matchPagination.total === 1 ? "match" : "matches"}.`}
+            >
+              <ErrorState
+                message={matchesError}
+                onRetry={() =>
+                  loadMatches({
+                    page: matchPagination.page,
+                    forceRefresh: true,
+                  })
+                }
+                retryLabel="Retry match history"
+              />
+              {isLoadingMatches ? (
+                <SectionLoader lines={6} message="Loading match history..." />
+              ) : matchesError ? null : matches.length ? (
+                <>
+                  <ProfileMatchList matches={matches} profileName="You" />
+                  {matchPagination.pages > 1 ? (
+                    <nav
+                      className="profile-pagination"
+                      aria-label="Profile match history pages"
+                    >
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={matchPagination.page <= 1}
+                        onClick={() =>
+                          loadMatches({ page: matchPagination.page - 1 })
+                        }
+                      >
+                        Previous
+                      </Button>
+                      <span aria-live="polite">
+                        Page {matchPagination.page} of {matchPagination.pages}
+                      </span>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={matchPagination.page >= matchPagination.pages}
+                        onClick={() =>
+                          loadMatches({ page: matchPagination.page + 1 })
+                        }
+                      >
+                        Next
+                      </Button>
+                    </nav>
+                  ) : null}
+                </>
               ) : (
-                <div className="match-empty-state">
-                  <p className="empty-state-copy">
-                    Your recent summary will appear here once matches are recorded.
-                  </p>
-                </div>
+                <Card variant="empty" className="dashboard-panel">
+                  <EmptyState
+                    title="No battles recorded"
+                    description="Completed and pending match records will appear here."
+                  />
+                </Card>
               )}
-            </section>
-          </div>
-        ) : activeTab === "matches" ? (
-          <div className="profile-tab-content">
-            <section className="dashboard-panel">
-              <div className="panel-header">
-                <div>
-                  <p className="panel-kicker">Match History</p>
-                  <h2 className="panel-title">Recent matches</h2>
-                </div>
-              </div>
-
-              {isLoadingTab && !hasLoadedMatches ? (
-                <SectionSkeleton lines={6} />
-              ) : matches.length ? (
-                <div className="profile-match-list">
-                  {matches.map((match) => (
-                    <article key={match.id} className="profile-match-card">
-                      <div className="profile-match-top">
-                        <div>
-                          <p className="profile-match-opponent">vs {match.opponent.username}</p>
-                          <p className="match-card-meta">{formatDate(match.played_at)}</p>
-                        </div>
-                        <div className="profile-match-badges">
-                          {match.status === "confirmed" ? (
-                            <span className={`match-status-badge ${getResultTone(match.result)}`}>
-                              {match.result_label}
-                            </span>
-                          ) : null}
-                          <span className={`match-status-badge ${getStatusTone(match.status)}`}>
-                            {match.display_status}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="profile-match-score-grid">
-                        <div className="match-score-line">
-                          <span className="match-score-label">You</span>
-                          <strong>{match.player_score}</strong>
-                        </div>
-                        <div className="match-score-line">
-                          <span className="match-score-label">{match.opponent.username}</span>
-                          <strong>{match.opponent_score}</strong>
-                        </div>
-                      </div>
-                    </article>
-                  ))}
-                </div>
+            </PageSection>
+          ) : (
+            <PageSection
+              title="Recent account activity"
+              description="Your ten most recent profile, security, and match events."
+              actions={
+                <Button as={Link} to="/activity" variant="ghost" size="sm">
+                  View all activity
+                </Button>
+              }
+            >
+              <ErrorState
+                message={activityError}
+                onRetry={() => loadActivity({ forceRefresh: true })}
+                retryLabel="Retry activity"
+              />
+              {isLoadingActivity ? (
+                <ActivitySkeleton count={5} message="Loading profile activity" />
+              ) : activityError ? null : activity.length ? (
+                <ActivityList activities={activity} compact label="Recent profile-owner activity" />
               ) : (
-                <div className="match-empty-state">
-                  <p className="empty-state-copy">No matches yet.</p>
-                </div>
+                <Card variant="empty" className="dashboard-panel">
+                  <EmptyState
+                    title="Your competitive story starts here"
+                    description="Profile, sign-in, and match events will appear here."
+                  />
+                </Card>
               )}
-            </section>
-          </div>
-        ) : (
-          <div className="profile-tab-content">
-            <section className="dashboard-panel">
-              <div className="panel-header">
-                <div>
-                  <p className="panel-kicker">Activity</p>
-                  <h2 className="panel-title">Recent account activity</h2>
-                </div>
-              </div>
-
-              {isLoadingTab && !hasLoadedActivity ? (
-                <SectionSkeleton lines={6} />
-              ) : activity.length ? (
-                <div className="profile-activity-list">
-                  {activity.map((item) => (
-                    <article key={item.id} className="profile-activity-card">
-                      <div className="profile-activity-icon" aria-hidden="true">
-                        {getActivityIcon(item.action_type)}
-                      </div>
-                      <div className="profile-activity-body">
-                        <p className="profile-activity-title">{item.action_label || "Activity recorded"}</p>
-                        <p className="profile-activity-summary">
-                          {formatActivityDescription(item.action_type, item.details)}
-                        </p>
-                      </div>
-                      <p className="profile-activity-time">{formatDate(item.created_at)}</p>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="match-empty-state">
-                  <p className="empty-state-copy">No activity yet</p>
-                </div>
-              )}
-            </section>
-          </div>
-        )}
+            </PageSection>
+          )}
+        </div>
       </section>
     </DashboardLayout>
   );
-}
-
-function buildFallbackProfile(user) {
-  return normalizeProfile(
-    {
-      id: user?.id || "",
-      username: user?.username || "",
-      email: user?.email || "",
-      profile_image: user?.profile_image || "",
-      created_at: user?.created_at || null,
-      last_login: user?.last_login || user?.last_login_at || null,
-      overview: emptyProfile.overview,
-    },
-    user
-  );
-}
-
-function normalizeProfile(profile, authUser) {
-  const source = profile || {};
-  const fallback = authUser || {};
-  const overview = source.overview || {};
-
-  return {
-    id: source.id || fallback.id || emptyProfile.id,
-    username: source.username || fallback.username || emptyProfile.username,
-    email: source.email || fallback.email || emptyProfile.email,
-    profile_image: source.profile_image || fallback.profile_image || emptyProfile.profile_image,
-    created_at: source.created_at || fallback.created_at || emptyProfile.created_at,
-    last_login:
-      source.last_login ||
-      source.last_login_at ||
-      fallback.last_login ||
-      fallback.last_login_at ||
-      emptyProfile.last_login,
-    overview: {
-      total_matches: overview.total_matches ?? 0,
-      wins: overview.wins ?? 0,
-      losses: overview.losses ?? 0,
-      draws: overview.draws ?? 0,
-      pending_matches: overview.pending_matches ?? 0,
-      disputed_matches: overview.disputed_matches ?? 0,
-      recent_summary: normalizeMatches(overview.recent_summary || []),
-    },
-  };
-}
-
-function mergeProfile(currentProfile, nextProfile) {
-  return {
-    ...currentProfile,
-    ...nextProfile,
-    overview: {
-      ...currentProfile.overview,
-      ...nextProfile.overview,
-    },
-  };
-}
-
-function normalizeMatches(matches) {
-  return Array.isArray(matches)
-    ? matches.map((match) => ({
-        id: match?.id || "",
-        opponent: {
-          id: match?.opponent?.id || "",
-          username: match?.opponent?.username || "Unknown opponent",
-        },
-        result: match?.result || "pending",
-        result_label: match?.status === "confirmed" ? match?.result_label || "-" : "",
-        status: match?.status || "pending_result",
-        display_status: match?.display_status || formatStatus(match?.status || "pending_result"),
-        player_score: match?.player_score ?? 0,
-        opponent_score: match?.opponent_score ?? 0,
-        score_line:
-          match?.player_score == null && match?.opponent_score == null
-            ? "No result submitted"
-            : match?.score_line || `${match?.player_score ?? 0} - ${match?.opponent_score ?? 0}`,
-        played_at: match?.played_at || match?.created_at || null,
-      }))
-    : [];
-}
-
-function normalizeActivityLogs(logs) {
-  return Array.isArray(logs)
-    ? logs.map((log) => ({
-        id: log?.id || "",
-        action_type: log?.action_type || "",
-        action_label: log?.action_label || "Activity recorded",
-        details: log?.details || null,
-        created_at: log?.created_at || null,
-      }))
-    : [];
-}
-
-function getActivityIcon(actionType) {
-  const iconMap = {
-    login: "LG",
-    match_submitted: "MS",
-    match_confirmed: "OK",
-    match_disputed: "DP",
-    proof_uploaded: "PF",
-    password_reset: "PW",
-    role_changed: "RL",
-    settings_updated: "ST",
-  };
-
-  return iconMap[actionType] || "..";
-}
-
-function formatActivityDescription(actionType, details) {
-  const formattedDetails = formatActivityDetails(details);
-  const safeDetails = details && typeof details === "object" && !Array.isArray(details) ? details : {};
-
-  if (actionType === "login") {
-    return formattedDetails || "Signed in to BragRight.";
-  }
-
-  if (actionType === "match_submitted") {
-    if (safeDetails.player_score != null || safeDetails.opponent_score != null) {
-      return `Submitted a match result. Score: ${safeDetails.player_score ?? "-"}-${safeDetails.opponent_score ?? "-"}`;
-    }
-
-    return formattedDetails || "Submitted a match result.";
-  }
-
-  if (actionType === "match_confirmed") {
-    return formattedDetails || "Confirmed a match result.";
-  }
-
-  if (actionType === "match_disputed") {
-    return formattedDetails || "Disputed a submitted result.";
-  }
-
-  if (actionType === "proof_uploaded") {
-    return formattedDetails || "Uploaded proof for a match.";
-  }
-
-  if (actionType === "password_reset") {
-    return formattedDetails || "Password reset activity recorded.";
-  }
-
-  if (actionType === "role_changed") {
-    return formattedDetails || "Role change recorded.";
-  }
-
-  if (actionType === "settings_updated" || actionType === "profile_updated") {
-    return formattedDetails || "Settings updated.";
-  }
-
-  return formattedDetails || "Recorded account activity.";
-}
-
-function formatActivityDetails(details) {
-  if (details == null || details === "") {
-    return "";
-  }
-
-  if (Array.isArray(details)) {
-    return details
-      .map((value) => formatActivityValue(value))
-      .filter(Boolean)
-      .join(" | ");
-  }
-
-  if (typeof details !== "object") {
-    return formatActivityValue(details);
-  }
-
-  return Object.entries(details)
-    .filter(([, value]) => value != null && value !== "")
-    .map(([key, value]) => `${formatActivityKey(key)}: ${formatActivityValue(value)}`)
-    .filter(Boolean)
-    .join(" | ");
-}
-
-function formatActivityKey(value) {
-  return String(value || "detail")
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-function formatActivityValue(value) {
-  if (value == null || value === "") {
-    return "";
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((entry) => formatActivityValue(entry)).filter(Boolean).join(", ");
-  }
-
-  if (typeof value === "object") {
-    return Object.entries(value)
-      .filter(([, entry]) => entry != null && entry !== "")
-      .map(([key, entry]) => `${formatActivityKey(key)}: ${formatActivityValue(entry)}`)
-      .filter(Boolean)
-      .join(", ");
-  }
-
-  return String(value);
-}
-
-function getAvatarInitials(value) {
-  return value
-    .split(/[\s@._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0].toUpperCase())
-    .join("");
-}
-
-function getResultTone(result) {
-  if (result === "win") {
-    return "match-status-confirmed";
-  }
-
-  if (result === "loss") {
-    return "match-status-disputed";
-  }
-
-  return "match-status-pending";
-}
-
-function getStatusTone(status) {
-  if (status === "confirmed") {
-    return "match-status-confirmed";
-  }
-
-  if (status === "disputed") {
-    return "match-status-disputed";
-  }
-
-  if (["rejected", "cancelled", "expired"].includes(status)) {
-    return "match-status-rejected";
-  }
-
-  return "match-status-pending";
-}
-
-function formatResultLabel(value) {
-  if (value === "W") {
-    return "Win";
-  }
-
-  if (value === "L") {
-    return "Loss";
-  }
-
-  if (value === "D") {
-    return "Draw";
-  }
-
-  return "Match";
-}
-
-function formatStatus(value) {
-  return String(value || "unknown")
-    .replace("_", " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-function formatDate(date) {
-  if (!date) {
-    return "-";
-  }
-
-  const parsedDate = new Date(date);
-  if (Number.isNaN(parsedDate.getTime())) {
-    return "-";
-  }
-
-  return parsedDate.toLocaleString();
 }
 
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("Could not read file."));
+    reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
 }

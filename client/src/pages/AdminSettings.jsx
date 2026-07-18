@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import ButtonLoadingText from "../components/ButtonLoadingText";
+import ActivityList from "../components/ActivityList";
 import ErrorState from "../components/ErrorState";
 import SectionLoader from "../components/SectionLoader";
 import SuccessAlert from "../components/SuccessAlert";
+import { AppearanceSettings } from "../components/ThemeSwitcher";
+import { Button, FormField, Input } from "../components/ui";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
 import { getAdminLogins, getAdminSettings, updateAdminSettings } from "../services/api";
@@ -79,7 +81,7 @@ export default function AdminSettings() {
   return (
     <DashboardLayout
       title="Admin Settings"
-      description=""
+      description="Tune the rules that keep the competitive experience reliable."
     >
       <section className="feature-hero-card">
         <div>
@@ -95,6 +97,7 @@ export default function AdminSettings() {
 
       <SuccessAlert message={feedback.type === "success" ? feedback.message : ""} />
       <ErrorState message={feedback.type === "error" ? feedback.message : ""} onRetry={loadAdminSettings} />
+      <AppearanceSettings />
 
       {isLoading ? (
         <SectionLoader lines={8} message="Loading admin settings..." />
@@ -109,9 +112,13 @@ export default function AdminSettings() {
             </div>
 
             <form className="admin-settings-form" onSubmit={handleSave}>
-              <label className="form-field">
-                Duplicate window minutes
-                <input
+              <FormField
+                label="Duplicate window minutes"
+                htmlFor="duplicate-window-minutes"
+                className="form-field"
+              >
+                <Input
+                  id="duplicate-window-minutes"
                   type="number"
                   min="1"
                   max="60"
@@ -119,13 +126,16 @@ export default function AdminSettings() {
                   value={settings.duplicate_window_minutes}
                   onChange={handleChange}
                 />
-              </label>
+              </FormField>
 
-              <button className="auth-button" type="submit" disabled={isSaving}>
-                <ButtonLoadingText isLoading={isSaving} loadingText="Saving...">
-                  Save Settings
-                </ButtonLoadingText>
-              </button>
+              <Button
+                className="auth-button"
+                type="submit"
+                isLoading={isSaving}
+                loadingText="Saving..."
+              >
+                Save Settings
+              </Button>
             </form>
           </section>
 
@@ -138,19 +148,7 @@ export default function AdminSettings() {
             </div>
 
             {activity.length ? (
-              <div className="admin-activity-list">
-                {activity.map((event) => (
-                  <article key={event.id} className="admin-activity-card">
-                    <p className="admin-dispute-list-title">
-                      {event.username || event.details?.email || "Unknown user"}
-                    </p>
-                    <p className="match-card-meta">{event.details?.email || "No email recorded"}</p>
-                    <p className="match-card-meta">{formatDate(event.created_at)}</p>
-                    <p className="match-card-meta">{event.device_info || "Unknown device"}</p>
-                    <p className="match-card-meta">{event.ip_address || "Unknown IP"}</p>
-                  </article>
-                ))}
-              </div>
+              <ActivityList activities={activity} admin compact label="Recent authentication activity" />
             ) : (
               <div className="match-empty-state">
                 <p className="empty-state-copy">No login activity recorded yet.</p>

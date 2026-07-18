@@ -1,20 +1,30 @@
-from datetime import timedelta
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from uuid import uuid4
 
-from flask import Blueprint, current_app, jsonify, request, send_from_directory
+from flask import Blueprint, current_app, g, jsonify, request, send_file
 from pymongo import DESCENDING
 from pymongo.errors import PyMongoError
 from werkzeug.datastructures import FileStorage
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.utils import secure_filename
 
 from ..db import (
     describe_mongo_error,
     get_db_debug_snapshot,
     get_matches_collection,
+    get_proof_uploads_collection,
     get_users_collection,
 )
 from ..services.activity_logger import record_activity
+from ..services.admin_access import ADMIN_ROLE, get_user_role
+from ..services.api_security import (
+    ErrorCode,
+    api_error,
+    get_json_object,
+    pagination_metadata,
+    parse_bounded_int_query,
+)
 from ..services.match_workflow import (
     MATCH_RESULT_SOURCE_ADMIN,
     MATCH_STATUS_MATCH_REQUESTED,
@@ -40,20 +50,35 @@ from ..services.match_workflow import (
     group_matches_by_status,
 )
 from ..services.system_settings import get_match_duplicate_window_minutes
-from .auth import get_current_user_from_request, serialize_user
+from ..services.upload_storage import get_upload_storage
+from .auth import (
+    get_current_user_from_request,
+    require_auth,
+    require_owner,
+    require_player,
+    serialize_user,
+)
 
 
 matches_bp = Blueprint("matches", __name__)
 ALLOWED_PROOF_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 ALLOWED_PROOF_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}
-MAX_PROOF_IMAGE_SIZE_BYTES = 5 * 1024 * 1024
-PROOF_UPLOAD_DIRECTORY = Path(__file__).resolve().parents[1] / "uploads" / "proofs"
-DEFAULT_MY_MATCHES_LIMIT = 200
-MAX_MY_MATCHES_LIMIT = 250
+DEFAULT_MY_MATCHES_LIMIT = 20
+MAX_MY_MATCHES_LIMIT = 100
+MY_MATCH_VIEWS = {
+    "all",
+    "attention",
+    "active",
+    "awaiting_opponent",
+    "completed",
+    "disputed",
+    "closed",
+}
 
 
 def _json_error(message, status_code=400, **extra):
-    return jsonify({"success": False, "message": message, **extra}), status_code
+    code = extra.pop("code", None)
+    return api_error(message, status_code, code, details=extra or None)
 
 
 def _load_current_user():
@@ -74,6 +99,112 @@ def _load_user_by_id(user_id):
         return None, "User was not found.", 404
 
     return user, None, None
+
+
+def _load_player_profiles(match_documents):
+    player_ids = set()
+    for document in match_documents:
+        players = resolve_match_players(document)
+        player_ids.update(
+            {
+                players["player_one_id"],
+                players["player_two_id"],
+            }
+        )
+    player_ids.discard("")
+    object_ids = []
+    for player_id in player_ids:
+        _, object_id = parse_object_id(player_id)
+        if object_id:
+            object_ids.append(object_id)
+    if not object_ids:
+        return {}
+    users = get_users_collection(config=current_app.config, logger=current_app.logger)
+    return {
+        str(user["_id"]): {
+            "username": user.get("username") or "Player",
+            "profile_image": user.get("profile_image") or "",
+        }
+        for user in users.find(
+            {"_id": {"$in": object_ids}},
+            {"username": 1, "profile_image": 1},
+        )
+    }
+
+
+def _participant_query(user_id):
+    return {
+        "$or": [
+            {"player_one_id": user_id},
+            {"player_two_id": user_id},
+            {"submitted_by": user_id},
+            {"opponent_id": user_id},
+        ]
+    }
+
+
+def _match_view_query(user_id, view):
+    if view == "all":
+        return {}
+    if view == "attention":
+        return {
+            "$or": [
+                {
+                    "status": {"$in": [MATCH_STATUS_MATCH_REQUESTED, "scheduled"]},
+                    "requested_to": user_id,
+                },
+                {
+                    "status": MATCH_STATUS_PENDING_RESULT,
+                    "accepted_at": None,
+                    "requested_to": user_id,
+                },
+                {
+                    "status": MATCH_STATUS_PENDING_CONFIRMATION,
+                    "result_submitted_by": {"$ne": user_id},
+                },
+            ]
+        }
+    if view == "active":
+        return {
+            "status": MATCH_STATUS_PENDING_RESULT,
+            "accepted_at": {"$ne": None},
+        }
+    if view == "awaiting_opponent":
+        return {
+            "$or": [
+                {
+                    "status": {"$in": [MATCH_STATUS_MATCH_REQUESTED, "scheduled"]},
+                    "created_by": user_id,
+                },
+                {
+                    "status": MATCH_STATUS_PENDING_RESULT,
+                    "accepted_at": None,
+                    "created_by": user_id,
+                },
+                {
+                    "status": MATCH_STATUS_PENDING_CONFIRMATION,
+                    "result_submitted_by": user_id,
+                },
+            ]
+        }
+    if view == "completed":
+        return {"status": MATCH_STATUS_CONFIRMED}
+    if view == "disputed":
+        return {"status": MATCH_STATUS_DISPUTED}
+    return {
+        "status": {
+            "$in": [MATCH_STATUS_CANCELLED, "rejected", MATCH_STATUS_EXPIRED]
+        }
+    }
+
+
+def _build_my_matches_query(user_id, view):
+    return {
+        "$and": [
+            _participant_query(user_id),
+            _match_view_query(user_id, view),
+        ]
+    }
 
 
 def _load_match(match_id):
@@ -137,7 +268,7 @@ def _parse_submit_result_payload(match_document, payload):
     if validation_error:
         return None, validation_error
 
-    proof_image_url = str(payload.get("proof_image_url", "")).strip() or None
+    proof_image_url = str(payload.get("proof_image_url") or "").strip() or None
     return {
         **validated,
         "proof_image_url": proof_image_url,
@@ -180,7 +311,7 @@ def _find_duplicate_match(player_one_id, player_two_id):
     return duplicate, duplicate_window_minutes
 
 
-def _validate_and_store_proof_image(uploaded_file: FileStorage):
+def _validate_proof_image(uploaded_file: FileStorage):
     if not uploaded_file or not uploaded_file.filename:
         return None, "Proof image file is required."
 
@@ -201,14 +332,34 @@ def _validate_and_store_proof_image(uploaded_file: FileStorage):
     if not file_bytes:
         return None, "Proof image file is empty."
 
-    if len(file_bytes) > MAX_PROOF_IMAGE_SIZE_BYTES:
-        return None, "Proof image must be 5 MB or smaller."
+    maximum_size_mb = int(current_app.config.get("MAX_UPLOAD_SIZE_MB", 5))
+    if len(file_bytes) > maximum_size_mb * 1024 * 1024:
+        return None, f"Proof image must be {maximum_size_mb} MB or smaller."
 
-    PROOF_UPLOAD_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    detected_type = None
+    if file_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        detected_type = "png"
+    elif file_bytes.startswith(b"\xff\xd8\xff"):
+        detected_type = "jpeg"
+    elif (
+        len(file_bytes) >= 12
+        and file_bytes.startswith(b"RIFF")
+        and file_bytes[8:12] == b"WEBP"
+    ):
+        detected_type = "webp"
+    normalized_extension = "jpeg" if file_extension in {"jpg", "jpeg"} else file_extension
+    if detected_type != normalized_extension:
+        return None, "Proof image content does not match its file type."
+
     stored_filename = f"{uuid4().hex}.{file_extension}"
-    destination_path = PROOF_UPLOAD_DIRECTORY / stored_filename
-    uploaded_file.save(destination_path)
-    return stored_filename, None
+    return {
+        "filename": stored_filename,
+        "provider_key": f"proofs/{stored_filename}",
+        "content": file_bytes,
+        "content_type": uploaded_file.mimetype,
+        "file_type": normalized_extension,
+        "size": len(file_bytes),
+    }, None
 
 
 def _build_proof_image_url(filename):
@@ -216,19 +367,82 @@ def _build_proof_image_url(filename):
 
 
 def _parse_limit_arg(default_limit=DEFAULT_MY_MATCHES_LIMIT, max_limit=MAX_MY_MATCHES_LIMIT):
-    raw_value = str(request.args.get("limit", "")).strip()
-    if not raw_value:
-        return default_limit
+    return parse_bounded_int_query(
+        "limit",
+        default=default_limit,
+        maximum=max_limit,
+    )
 
+
+def _normalize_proof_filename(filename):
+    safe_filename = secure_filename(str(filename or ""))
+    if safe_filename != filename or "." not in safe_filename:
+        return None
+    extension = safe_filename.rsplit(".", 1)[-1].lower()
+    stem = safe_filename.rsplit(".", 1)[0]
+    if extension not in ALLOWED_PROOF_EXTENSIONS or len(stem) != 32:
+        return None
     try:
-        parsed_limit = int(raw_value)
+        int(stem, 16)
     except ValueError:
-        return default_limit
+        return None
+    return safe_filename
 
-    return max(1, min(parsed_limit, max_limit))
+
+def _load_proof_upload(filename):
+    safe_filename = _normalize_proof_filename(filename)
+    if not safe_filename:
+        return None
+    uploads = get_proof_uploads_collection(
+        config=current_app.config,
+        logger=current_app.logger,
+    )
+    return uploads.find_one({"filename": safe_filename})
+
+
+def _current_user_owns_upload(user, filename):
+    upload = _load_proof_upload(filename)
+    g.authorized_upload = upload
+    return bool(upload and upload.get("owner_id") == str(user["_id"]))
+
+
+def _claim_proof_upload(proof_image_url, current_user_id, match_id):
+    if not proof_image_url:
+        return None
+    prefix = "/api/matches/proof/"
+    if not proof_image_url.startswith(prefix):
+        return _json_error("Proof image URL is invalid.", 422)
+
+    filename = _normalize_proof_filename(proof_image_url[len(prefix):])
+    if not filename:
+        return _json_error("Proof image URL is invalid.", 422)
+
+    uploads = get_proof_uploads_collection(
+        config=current_app.config,
+        logger=current_app.logger,
+    )
+    upload = uploads.find_one({"filename": filename})
+    if not upload:
+        return _json_error("Proof upload was not found.", 404)
+    if upload.get("owner_id") != current_user_id:
+        return _json_error(
+            "You can only attach proof that you uploaded.",
+            403,
+            code=ErrorCode.FORBIDDEN,
+        )
+    existing_match_id = upload.get("match_id")
+    if existing_match_id and existing_match_id != match_id:
+        return _json_error("Proof upload is already attached to another match.", 409)
+
+    uploads.update_one(
+        {"_id": upload["_id"], "owner_id": current_user_id},
+        {"$set": {"match_id": match_id}},
+    )
+    return None
 
 
 @matches_bp.post("/upload-proof")
+@require_player
 def upload_proof():
     try:
         current_user, error_response, status_code = _load_current_user()
@@ -236,11 +450,37 @@ def upload_proof():
             return error_response, status_code
 
         uploaded_file = request.files.get("proof_image")
-        stored_filename, validation_error = _validate_and_store_proof_image(uploaded_file)
+        validated_upload, validation_error = _validate_proof_image(uploaded_file)
         if validation_error:
             return _json_error(validation_error, 400)
 
+        storage = get_upload_storage()
+        stored_filename = validated_upload["filename"]
+        provider_key = validated_upload["provider_key"]
+        storage.save(provider_key, validated_upload["content"])
         proof_image_url = _build_proof_image_url(stored_filename)
+        uploads = get_proof_uploads_collection(
+            config=current_app.config,
+            logger=current_app.logger,
+        )
+        try:
+            uploads.insert_one(
+                {
+                    "filename": stored_filename,
+                    "owner_id": str(current_user["_id"]),
+                    "match_id": None,
+                    "dispute_id": None,
+                    "file_type": validated_upload["file_type"],
+                    "content_type": validated_upload["content_type"],
+                    "size": validated_upload["size"],
+                    "provider": storage.provider_name,
+                    "provider_key": provider_key,
+                    "created_at": datetime.now(timezone.utc),
+                }
+            )
+        except Exception:
+            storage.delete(provider_key)
+            raise
         record_activity(
             user=serialize_user(current_user),
             action_type="proof_uploaded",
@@ -254,10 +494,11 @@ def upload_proof():
                 "message": "Proof image uploaded successfully.",
                 "data": {
                     "proof_image_url": proof_image_url,
-                    "uploaded_by": str(current_user["_id"]),
                 },
             }
         ), 201
+    except RequestEntityTooLarge:
+        raise
     except OSError:
         current_app.logger.exception("Filesystem error while uploading proof image")
         return _json_error("Could not store the proof image.", 500)
@@ -267,27 +508,102 @@ def upload_proof():
 
 
 @matches_bp.get("/proof/<filename>")
+@require_auth
 def serve_uploaded_proof(filename):
-    safe_filename = secure_filename(filename)
+    safe_filename = _normalize_proof_filename(filename)
     if not safe_filename:
         return _json_error("Proof image file was not found.", 404)
 
-    proof_path = PROOF_UPLOAD_DIRECTORY / safe_filename
-    if not proof_path.exists():
+    upload = _load_proof_upload(safe_filename)
+    if not upload:
         return _json_error("Proof image file was not found.", 404)
 
-    return send_from_directory(PROOF_UPLOAD_DIRECTORY, safe_filename)
+    current_user = g.current_user
+    current_user_id = str(current_user["_id"])
+    can_view = (
+        upload.get("owner_id") == current_user_id
+        or get_user_role(current_user, current_app.config) == ADMIN_ROLE
+    )
+    if not can_view and upload.get("match_id"):
+        match, _, load_error = _load_match(upload["match_id"])
+        can_view = bool(
+            not load_error
+            and get_match_participant_role(match, current_user_id) != "viewer"
+        )
+    if not can_view:
+        return _json_error(
+            "You do not have permission to access this proof.",
+            403,
+            code=ErrorCode.FORBIDDEN,
+        )
+
+    storage = get_upload_storage()
+    provider_key = upload.get("provider_key") or f"proofs/{safe_filename}"
+    if upload.get("provider", "local") != storage.provider_name:
+        return _json_error("Proof image file was not found.", 404)
+    if not storage.exists(provider_key):
+        return _json_error("Proof image file was not found.", 404)
+
+    content_type = upload.get("content_type") or {
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "webp": "image/webp",
+    }.get(safe_filename.rsplit(".", 1)[-1].lower(), "application/octet-stream")
+    return send_file(
+        BytesIO(storage.read(provider_key)),
+        mimetype=content_type,
+        download_name=safe_filename,
+        max_age=0,
+    )
+
+
+@matches_bp.delete("/proof/<filename>")
+@require_player
+@require_owner(_current_user_owns_upload)
+def delete_uploaded_proof(filename):
+    upload = g.authorized_upload
+    if upload.get("match_id"):
+        return _json_error(
+            "Proof attached to a match cannot be deleted.",
+            409,
+        )
+
+    uploads = get_proof_uploads_collection(
+        config=current_app.config,
+        logger=current_app.logger,
+    )
+    storage = get_upload_storage()
+    provider_key = upload.get("provider_key") or f"proofs/{upload['filename']}"
+    try:
+        storage.delete(provider_key)
+    except OSError:
+        current_app.logger.exception("Could not delete proof file")
+        return _json_error("Could not delete the proof upload.", 500)
+    uploads.delete_one({"_id": upload["_id"], "owner_id": str(g.current_user["_id"])})
+
+    return jsonify(
+        {
+            "success": True,
+            "message": "Proof upload deleted successfully.",
+        }
+    ), 200
 
 
 @matches_bp.post("")
 @matches_bp.post("/schedule")
+@require_player
 def schedule_match():
     try:
         current_user, error_response, status_code = _load_current_user()
         if error_response:
             return error_response, status_code
 
-        payload = request.get_json(silent=True) or {}
+        payload, body_error = get_json_object(
+            allowed_fields={"opponent_id", "opponent_username"}
+        )
+        if body_error:
+            return body_error
         parsed_payload, validation_error = _parse_schedule_payload(payload)
         if validation_error:
             return _json_error(validation_error, 400)
@@ -310,6 +626,13 @@ def schedule_match():
                 return _json_error("Opponent not found.", 404)
             if str(opponent["_id"]) == str(current_user["_id"]):
                 return _json_error("You cannot create a match against yourself.", 400)
+
+        if (
+            str(opponent.get("role") or "player").lower() != "player"
+            or str(opponent.get("status") or "active").lower() == "disabled"
+            or opponent.get("is_active") is False
+        ):
+            return _json_error("Opponent is not eligible for a match request.", 422)
 
         duplicate, duplicate_window_minutes = _find_duplicate_match(
             str(current_user["_id"]),
@@ -409,6 +732,7 @@ def schedule_match():
 
 
 @matches_bp.post("/<match_id>/submit-result")
+@require_player
 def submit_match_result(match_id):
     try:
         current_user, error_response, status_code = _load_current_user()
@@ -427,10 +751,26 @@ def submit_match_result(match_id):
         if transition_error:
             return transition_error
 
-        payload = request.get_json(silent=True) or {}
+        payload, body_error = get_json_object(
+            allowed_fields={
+                "player_one_score",
+                "player_two_score",
+                "winner_id",
+                "proof_image_url",
+            }
+        )
+        if body_error:
+            return body_error
         parsed_payload, validation_error = _parse_submit_result_payload(match, payload)
         if validation_error:
             return _json_error(validation_error, 400)
+        proof_error = _claim_proof_upload(
+            parsed_payload["proof_image_url"],
+            str(current_user["_id"]),
+            str(match["_id"]),
+        )
+        if proof_error:
+            return proof_error
 
         submitted_at = now_utc()
         updated_fields = {
@@ -502,6 +842,7 @@ def submit_match_result(match_id):
 
 
 @matches_bp.post("/<match_id>/accept")
+@require_player
 def accept_match(match_id):
     try:
         current_user, error_response, status_code = _load_current_user()
@@ -591,6 +932,7 @@ def accept_match(match_id):
 
 
 @matches_bp.post("/<match_id>/decline")
+@require_player
 def decline_match(match_id):
     try:
         current_user, error_response, status_code = _load_current_user()
@@ -668,6 +1010,7 @@ def decline_match(match_id):
 
 
 @matches_bp.get("/my")
+@require_player
 def get_my_matches():
     try:
         current_user, error_response, status_code = _load_current_user()
@@ -675,22 +1018,50 @@ def get_my_matches():
             return error_response, status_code
 
         matches = get_matches_collection(config=current_app.config, logger=current_app.logger)
-        documents = list(
-            matches.find(
-                {
-                    "$or": [
-                        {"player_one_id": str(current_user["_id"])},
-                        {"player_two_id": str(current_user["_id"])},
-                        {"submitted_by": str(current_user["_id"])},
-                        {"opponent_id": str(current_user["_id"])},
-                    ]
-                }
-            )
-            .sort("updated_at", DESCENDING)
-            .limit(_parse_limit_arg())
+        limit, limit_error = _parse_limit_arg()
+        if limit_error:
+            return limit_error
+        page, page_error = parse_bounded_int_query(
+            "page", default=1, maximum=100000
         )
-        serialized_matches = [serialize_match(document, str(current_user["_id"])) for document in documents]
+        if page_error:
+            return page_error
+        view = str(request.args.get("view") or "all").strip().lower()
+        if view not in MY_MATCH_VIEWS:
+            return _json_error(
+                "Match view is invalid.",
+                422,
+                fields={"view": sorted(MY_MATCH_VIEWS)},
+            )
+        user_id = str(current_user["_id"])
+        query = _build_my_matches_query(user_id, view)
+        total = matches.count_documents(query)
+        documents = list(
+            matches.find(query)
+            .sort("updated_at", DESCENDING)
+            .skip((page - 1) * limit)
+            .limit(limit)
+        )
+        player_profiles = _load_player_profiles(documents)
+        serialized_matches = [
+            serialize_match(
+                document,
+                user_id,
+                player_profiles=player_profiles,
+            )
+            for document in documents
+        ]
         grouped = group_matches_by_status(serialized_matches)
+        grouped["view"] = view
+        grouped["view_counts"] = {
+            match_view: matches.count_documents(
+                _build_my_matches_query(user_id, match_view)
+            )
+            for match_view in sorted(MY_MATCH_VIEWS)
+        }
+        grouped.update(
+            pagination_metadata(page=page, limit=limit, total=total)
+        )
 
         return jsonify(
             {
@@ -723,8 +1094,45 @@ def get_my_matches():
         return _json_error("Could not load matches.", 500)
 
 
+@matches_bp.get("/<match_id>")
+@require_player
+def get_match_detail(match_id):
+    try:
+        current_user, error_response, status_code = _load_current_user()
+        if error_response:
+            return error_response, status_code
+        match, _, load_error = _load_match(match_id)
+        if load_error:
+            return load_error
+        user_id = str(current_user["_id"])
+        membership_error = _ensure_user_in_match(match, user_id)
+        if membership_error:
+            return membership_error
+        player_profiles = _load_player_profiles([match])
+        serialized = serialize_match(
+            match,
+            user_id,
+            player_profiles=player_profiles,
+        )
+        return jsonify(
+            {
+                "success": True,
+                "message": "Match loaded successfully.",
+                "data": serialized,
+                "match": serialized,
+            }
+        ), 200
+    except PyMongoError:
+        current_app.logger.exception("MongoDB error while loading match detail")
+        return _json_error("Could not load the match.", 500)
+    except Exception:
+        current_app.logger.exception("Unexpected error while loading match detail")
+        return _json_error("Could not load the match.", 500)
+
+
 @matches_bp.post("/<match_id>/confirm")
 @matches_bp.patch("/<match_id>/confirm")
+@require_player
 def confirm_match(match_id):
     try:
         current_user, error_response, status_code = _load_current_user()
@@ -798,6 +1206,7 @@ def confirm_match(match_id):
 
 @matches_bp.post("/<match_id>/dispute")
 @matches_bp.patch("/<match_id>/dispute")
+@require_player
 def dispute_match(match_id):
     try:
         current_user, error_response, status_code = _load_current_user()
@@ -819,7 +1228,11 @@ def dispute_match(match_id):
         if transition_error:
             return transition_error
 
-        payload = request.get_json(silent=True) or {}
+        payload, body_error = get_json_object(
+            allowed_fields={"dispute_note"}
+        )
+        if body_error:
+            return body_error
         parsed_payload, validation_error = _parse_dispute_payload(payload)
         if validation_error:
             return _json_error(validation_error, 400)
@@ -879,6 +1292,7 @@ def dispute_match(match_id):
 
 
 @matches_bp.post("/<match_id>/cancel")
+@require_player
 def cancel_match(match_id):
     try:
         current_user, error_response, status_code = _load_current_user()

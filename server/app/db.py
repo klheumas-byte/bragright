@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from dotenv import dotenv_values, load_dotenv
-from pymongo import MongoClient
+from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.errors import ConfigurationError, ConnectionFailure, OperationFailure, PyMongoError
 
 
@@ -16,6 +16,8 @@ MATCHES_COLLECTION_NAME = "matches"
 SETTINGS_COLLECTION_NAME = "settings"
 LOGIN_ACTIVITY_COLLECTION_NAME = "login_activity"
 ACTIVITY_LOGS_COLLECTION_NAME = "activity_logs"
+AUTH_SESSIONS_COLLECTION_NAME = "auth_sessions"
+PROOF_UPLOADS_COLLECTION_NAME = "proof_uploads"
 
 _env_loaded = False
 _mongo_client = None
@@ -62,13 +64,22 @@ def get_mongo_settings(config=None):
 
     config = config or {}
     file_values = dotenv_values(ENV_PATH) if ENV_PATH.exists() else {}
+    config_get = config.get if hasattr(config, "get") else lambda name, default=None: default
     mongo_uri = _clean_value(
-        file_values.get("MONGO_URI") or config.get("MONGO_URI") or os.getenv("MONGO_URI")
+        config_get("MONGODB_URI")
+        or config_get("MONGO_URI")
+        or os.getenv("MONGODB_URI")
+        or os.getenv("MONGO_URI")
+        or file_values.get("MONGODB_URI")
+        or file_values.get("MONGO_URI")
     )
     mongo_db_name = _clean_value(
-        file_values.get("MONGO_DB_NAME")
-        or config.get("MONGO_DB_NAME")
+        config_get("MONGODB_DATABASE")
+        or config_get("MONGO_DB_NAME")
+        or os.getenv("MONGODB_DATABASE")
         or os.getenv("MONGO_DB_NAME")
+        or file_values.get("MONGODB_DATABASE")
+        or file_values.get("MONGO_DB_NAME")
     )
 
     env_details = {
@@ -82,22 +93,22 @@ def get_mongo_settings(config=None):
 
     if not mongo_uri:
         raise RuntimeError(
-            "MONGO_URI is missing. Add it to server/.env, then restart the Flask server."
+            "MONGODB_URI is missing. Configure it and restart the service."
         )
 
     if not mongo_db_name:
         raise RuntimeError(
-            "MONGO_DB_NAME is missing. Add it to server/.env, then restart the Flask server."
+            "MONGODB_DATABASE is missing. Configure it and restart the service."
         )
 
     if "<username>" in mongo_uri or "<password>" in mongo_uri:
         raise RuntimeError(
-            "MONGO_URI still contains placeholder values. Replace them in server/.env and restart the Flask server."
+            "MONGODB_URI still contains placeholder values."
         )
 
     if not mongo_uri.startswith(("mongodb://", "mongodb+srv://")):
         raise RuntimeError(
-            "MONGO_URI must start with mongodb:// or mongodb+srv://."
+            "MONGODB_URI must start with mongodb:// or mongodb+srv://."
         )
 
     return {
@@ -114,6 +125,12 @@ def init_db(config=None, logger=None, force_reconnect=False):
     if _mongo_db is not None and not force_reconnect:
         return _mongo_db
 
+    config = config or {}
+    config_get = (
+        config.get
+        if hasattr(config, "get")
+        else lambda name, default=None: default
+    )
     settings = get_mongo_settings(config=config)
     log = logger or LOGGER
 
@@ -125,25 +142,28 @@ def init_db(config=None, logger=None, force_reconnect=False):
     try:
         client = MongoClient(
             settings["mongo_uri"],
-            serverSelectionTimeoutMS=5000,
-            connectTimeoutMS=5000,
-            socketTimeoutMS=5000,
+            serverSelectionTimeoutMS=int(
+                config_get("MONGODB_SERVER_SELECTION_TIMEOUT_MS", 5000)
+            ),
+            connectTimeoutMS=int(
+                config_get("MONGODB_CONNECT_TIMEOUT_MS", 5000)
+            ),
+            socketTimeoutMS=int(
+                config_get("MONGODB_SOCKET_TIMEOUT_MS", 10000)
+            ),
             retryWrites=True,
+            retryReads=True,
+            appname="bragright",
         )
         client.admin.command("ping")
         database = client[settings["mongo_db_name"]]
-        database.list_collection_names()
 
         _mongo_client = client
         _mongo_db = database
         _mongo_settings = settings
 
         log.info(
-            "MongoDB connected successfully. env=%s uri=%s db=%s users_collection=%s",
-            settings["env_details"]["env_path"],
-            settings["env_details"]["mongo_uri_preview"],
-            settings["mongo_db_name"],
-            USERS_COLLECTION_NAME,
+            "MongoDB connection established.",
         )
         return _mongo_db
     except (ConfigurationError, ConnectionFailure, OperationFailure, PyMongoError) as exc:
@@ -151,10 +171,7 @@ def init_db(config=None, logger=None, force_reconnect=False):
         _mongo_db = None
         _mongo_settings = settings
         log.exception(
-            "MongoDB connection failed. env=%s uri=%s db=%s",
-            settings["env_details"]["env_path"],
-            settings["env_details"]["mongo_uri_preview"],
-            settings["mongo_db_name"],
+            "MongoDB connection failed.",
         )
         raise
 
@@ -168,73 +185,180 @@ def get_db(config=None, logger=None):
 
 def get_users_collection(config=None, logger=None):
     db = get_db(config=config, logger=logger)
-    users = db[USERS_COLLECTION_NAME]
-    ensure_users_indexes(users)
-    return users
+    return db[USERS_COLLECTION_NAME]
 
 
 def ensure_users_indexes(users_collection):
-    users_collection.create_index("email", unique=True)
-    users_collection.create_index("username")
+    users_collection.create_index("email", unique=True, name="users_email_unique")
+    users_collection.create_index("username", name="users_username")
+    users_collection.create_index(
+        [("role", ASCENDING), ("status", ASCENDING)],
+        name="users_role_status",
+    )
+    users_collection.create_index(
+        [("role", ASCENDING), ("status", ASCENDING), ("username", ASCENDING)],
+        name="users_public_directory",
+    )
 
 
 def get_matches_collection(config=None, logger=None):
     db = get_db(config=config, logger=logger)
-    matches = db[MATCHES_COLLECTION_NAME]
-    ensure_matches_indexes(matches)
-    return matches
+    return db[MATCHES_COLLECTION_NAME]
 
 
 def ensure_matches_indexes(matches_collection):
-    matches_collection.create_index("player_one_id")
-    matches_collection.create_index("player_two_id")
-    matches_collection.create_index("created_by")
-    matches_collection.create_index("result_submitted_by")
-    matches_collection.create_index("confirmed_by")
-    matches_collection.create_index("disputed_by")
-    matches_collection.create_index("reviewed_by")
-    matches_collection.create_index("submitted_by")
-    matches_collection.create_index("opponent_id")
-    matches_collection.create_index("status")
-    matches_collection.create_index("created_at")
-    matches_collection.create_index("updated_at")
+    matches_collection.create_index(
+        [("player_one_id", ASCENDING), ("updated_at", DESCENDING)],
+        name="matches_player_one_updated",
+    )
+    matches_collection.create_index(
+        [("player_two_id", ASCENDING), ("updated_at", DESCENDING)],
+        name="matches_player_two_updated",
+    )
+    matches_collection.create_index(
+        [("submitted_by", ASCENDING), ("updated_at", DESCENDING)],
+        name="matches_submitted_by_updated",
+    )
+    matches_collection.create_index(
+        [("opponent_id", ASCENDING), ("updated_at", DESCENDING)],
+        name="matches_opponent_updated",
+    )
+    matches_collection.create_index(
+        [("status", ASCENDING), ("updated_at", DESCENDING)],
+        name="matches_status_updated",
+    )
+    matches_collection.create_index(
+        [("status", ASCENDING), ("confirmed_at", DESCENDING)],
+        name="matches_status_confirmed",
+    )
+    matches_collection.create_index(
+        [("status", ASCENDING), ("disputed_at", DESCENDING)],
+        name="matches_status_disputed",
+    )
+    matches_collection.create_index(
+        [
+            ("player_one_id", ASCENDING),
+            ("player_two_id", ASCENDING),
+            ("status", ASCENDING),
+            ("created_at", DESCENDING),
+        ],
+        name="matches_duplicate_guard",
+    )
+    matches_collection.create_index(
+        [
+            ("submitted_by", ASCENDING),
+            ("opponent_id", ASCENDING),
+            ("status", ASCENDING),
+            ("confirmed_at", DESCENDING),
+        ],
+        name="matches_rivalry_confirmed",
+    )
 
 
 def get_settings_collection(config=None, logger=None):
     db = get_db(config=config, logger=logger)
-    settings = db[SETTINGS_COLLECTION_NAME]
-    ensure_settings_indexes(settings)
-    return settings
+    return db[SETTINGS_COLLECTION_NAME]
 
 
 def ensure_settings_indexes(settings_collection):
-    settings_collection.create_index("key", unique=True)
+    settings_collection.create_index("key", unique=True, name="settings_key_unique")
 
 
 def get_login_activity_collection(config=None, logger=None):
     db = get_db(config=config, logger=logger)
-    login_activity = db[LOGIN_ACTIVITY_COLLECTION_NAME]
-    ensure_login_activity_indexes(login_activity)
-    return login_activity
+    return db[LOGIN_ACTIVITY_COLLECTION_NAME]
 
 
 def ensure_login_activity_indexes(login_activity_collection):
-    login_activity_collection.create_index("user_id")
-    login_activity_collection.create_index("logged_in_at")
+    login_activity_collection.create_index(
+        [("user_id", ASCENDING), ("logged_in_at", DESCENDING)],
+        name="login_activity_user_time",
+    )
 
 
 def get_activity_logs_collection(config=None, logger=None):
     db = get_db(config=config, logger=logger)
-    activity_logs = db[ACTIVITY_LOGS_COLLECTION_NAME]
-    ensure_activity_logs_indexes(activity_logs)
-    return activity_logs
+    return db[ACTIVITY_LOGS_COLLECTION_NAME]
 
 
 def ensure_activity_logs_indexes(activity_logs_collection):
-    activity_logs_collection.create_index("user_id")
-    activity_logs_collection.create_index("role")
-    activity_logs_collection.create_index("action_type")
-    activity_logs_collection.create_index("created_at")
+    activity_logs_collection.create_index(
+        [("user_id", ASCENDING), ("created_at", DESCENDING)],
+        name="activity_user_time",
+    )
+    activity_logs_collection.create_index(
+        [("role", ASCENDING), ("created_at", DESCENDING)],
+        name="activity_role_time",
+    )
+    activity_logs_collection.create_index(
+        [("action_type", ASCENDING), ("created_at", DESCENDING)],
+        name="activity_action_time",
+    )
+    activity_logs_collection.create_index(
+        "event_key",
+        unique=True,
+        sparse=True,
+        name="activity_event_key_unique",
+    )
+
+
+def get_auth_sessions_collection(config=None, logger=None):
+    db = get_db(config=config, logger=logger)
+    return db[AUTH_SESSIONS_COLLECTION_NAME]
+
+
+def get_proof_uploads_collection(config=None, logger=None):
+    db = get_db(config=config, logger=logger)
+    return db[PROOF_UPLOADS_COLLECTION_NAME]
+
+
+def ensure_auth_sessions_indexes(auth_sessions_collection):
+    auth_sessions_collection.create_index(
+        "session_id", unique=True, name="sessions_id_unique"
+    )
+    auth_sessions_collection.create_index(
+        "token_hash", unique=True, name="sessions_token_hash_unique"
+    )
+    auth_sessions_collection.create_index("family_id", name="sessions_family")
+    auth_sessions_collection.create_index(
+        [("user_id", ASCENDING), ("revoked_at", ASCENDING)],
+        name="sessions_user_revoked",
+    )
+    auth_sessions_collection.create_index(
+        "expires_at",
+        expireAfterSeconds=0,
+        name="sessions_expiry_ttl",
+    )
+
+
+def ensure_proof_uploads_indexes(proof_uploads_collection):
+    proof_uploads_collection.create_index(
+        "filename", unique=True, name="uploads_filename_unique"
+    )
+    proof_uploads_collection.create_index(
+        [("owner_id", ASCENDING), ("created_at", DESCENDING)],
+        name="uploads_owner_time",
+    )
+    proof_uploads_collection.create_index("match_id", name="uploads_match")
+
+
+def ensure_database_indexes(config=None, logger=None):
+    """Create all application indexes during process startup, never per request."""
+    db = get_db(config=config, logger=logger)
+    ensure_users_indexes(db[USERS_COLLECTION_NAME])
+    ensure_matches_indexes(db[MATCHES_COLLECTION_NAME])
+    ensure_settings_indexes(db[SETTINGS_COLLECTION_NAME])
+    ensure_login_activity_indexes(db[LOGIN_ACTIVITY_COLLECTION_NAME])
+    ensure_activity_logs_indexes(db[ACTIVITY_LOGS_COLLECTION_NAME])
+    ensure_auth_sessions_indexes(db[AUTH_SESSIONS_COLLECTION_NAME])
+    ensure_proof_uploads_indexes(db[PROOF_UPLOADS_COLLECTION_NAME])
+    (logger or LOGGER).info("MongoDB indexes initialized.")
+
+
+def check_database_ready(config=None, logger=None):
+    db = get_db(config=config, logger=logger)
+    db.client.admin.command("ping")
+    return True
 
 
 def get_db_debug_snapshot(config=None):
@@ -247,6 +371,8 @@ def get_db_debug_snapshot(config=None):
         debug["settings_collection"] = SETTINGS_COLLECTION_NAME
         debug["login_activity_collection"] = LOGIN_ACTIVITY_COLLECTION_NAME
         debug["activity_logs_collection"] = ACTIVITY_LOGS_COLLECTION_NAME
+        debug["auth_sessions_collection"] = AUTH_SESSIONS_COLLECTION_NAME
+        debug["proof_uploads_collection"] = PROOF_UPLOADS_COLLECTION_NAME
         return debug
     except RuntimeError as exc:
         return {
@@ -259,6 +385,8 @@ def get_db_debug_snapshot(config=None):
             "settings_collection": SETTINGS_COLLECTION_NAME,
             "login_activity_collection": LOGIN_ACTIVITY_COLLECTION_NAME,
             "activity_logs_collection": ACTIVITY_LOGS_COLLECTION_NAME,
+            "auth_sessions_collection": AUTH_SESSIONS_COLLECTION_NAME,
+            "proof_uploads_collection": PROOF_UPLOADS_COLLECTION_NAME,
         }
 
 

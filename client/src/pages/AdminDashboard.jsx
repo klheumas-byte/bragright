@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import ActivityList from "../components/ActivityList";
 import ErrorState from "../components/ErrorState";
 import SectionLoader from "../components/SectionLoader";
 import { useLoading } from "../context/LoadingContext";
@@ -85,7 +86,7 @@ export default function AdminDashboard() {
   return (
     <DashboardLayout
       title="Admin Dashboard"
-      description=""
+      description="Keep BragRight's competitive arena trusted and operational."
     >
       <section className="feature-hero-card admin-hero-card">
         <div>
@@ -124,15 +125,7 @@ export default function AdminDashboard() {
             </div>
 
             {summary.recent_activity.length ? (
-              <div className="admin-activity-list">
-                {summary.recent_activity.map((activity) => (
-                  <article key={activity.id} className="admin-activity-card">
-                    <p className="admin-dispute-list-title">{activity.action_label}</p>
-                    <p className="match-card-meta">{activity.summary || "Recorded system activity."}</p>
-                    <p className="match-card-meta">{formatDate(activity.created_at)}</p>
-                  </article>
-                ))}
-              </div>
+              <ActivityList activities={summary.recent_activity} admin compact label="Latest platform events" />
             ) : (
               <div className="match-empty-state">
                 <p className="empty-state-copy">No recent platform activity has been recorded yet.</p>

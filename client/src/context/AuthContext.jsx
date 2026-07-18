@@ -1,94 +1,79 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { useLoading } from "./LoadingContext";
 import {
-  AUTH_FAILURE_EVENT,
   clearClientApiCache,
   getCurrentUser,
   loginUser,
   logoutUser,
   registerUser,
+  restoreSession,
 } from "../services/api";
+import {
+  clearAuthSession,
+  subscribeAuthSession,
+  updateSessionUser,
+} from "../services/authSession";
 
 const AuthContext = createContext(null);
-export const AUTH_STORAGE_KEY = "bragright_user";
+const LEGACY_AUTH_STORAGE_KEY = "bragright_user";
 export const PLAYER_HOME_PATH = "/dashboard";
 export const ADMIN_HOME_PATH = "/admin/dashboard";
 
 export function AuthProvider({ children }) {
   const { trackLoading } = useLoading();
-  const [user, setUser] = useState(() => readStoredUser());
+  const [user, setUser] = useState(null);
   const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
+    const unsubscribe = subscribeAuthSession((nextUser) => {
+      setUser(normalizeUserRole(nextUser));
+    });
+
     initializeAuth();
+    return unsubscribe;
   }, []);
-
-  useEffect(() => {
-    function handleAuthFailure() {
-      logout();
-      setIsInitializing(false);
-    }
-
-    window.addEventListener(AUTH_FAILURE_EVENT, handleAuthFailure);
-    return () => {
-      window.removeEventListener(AUTH_FAILURE_EVENT, handleAuthFailure);
-    };
-  }, [user?.id]);
 
   async function register(credentials) {
     const data = await trackLoading(() => registerUser(credentials));
-    persistUser(data.user);
-    return data.user;
+    const normalizedUser = normalizeUserRole(data.user);
+    updateSessionUser(normalizedUser);
+    return normalizedUser;
   }
 
   async function login(credentials) {
     const data = await trackLoading(() => loginUser(credentials));
-    persistUser(data.user);
-    return data.user;
+    const normalizedUser = normalizeUserRole(data.user);
+    updateSessionUser(normalizedUser);
+    return normalizedUser;
   }
 
   async function refreshCurrentUser() {
     const data = await trackLoading(() => getCurrentUser({ forceRefresh: true }));
-    persistUser(data.user);
-    return data.user;
+    const normalizedUser = normalizeUserRole(data.user);
+    updateSessionUser(normalizedUser);
+    return normalizedUser;
   }
 
-  function logout() {
-    if (user?.id) {
-      logoutUser().catch(() => null);
+  async function logout() {
+    try {
+      await logoutUser();
+    } catch (error) {
+      // Local session removal must still complete when the network is unavailable.
+    } finally {
+      clearAuthSession();
+      clearClientApiCache();
     }
-
-    setUser(null);
-    clearClientApiCache();
-    safelyRemoveStoredUser();
   }
 
   async function initializeAuth() {
-    const storedUser = readStoredUser();
-
-    if (!storedUser?.id) {
-      setIsInitializing(false);
-      return;
-    }
-
+    removeLegacyStoredAuthentication();
     try {
-      persistUser(storedUser);
-      const data = await trackLoading(() => getCurrentUser());
-      persistUser(data.user);
+      const data = await trackLoading(() => restoreSession());
+      updateSessionUser(normalizeUserRole(data.user));
     } catch (error) {
-      logout();
+      clearAuthSession();
     } finally {
       setIsInitializing(false);
-    }
-  }
-
-  function persistUser(nextUser) {
-    const normalizedUser = normalizeUserRole(nextUser);
-    setUser(normalizedUser);
-    try {
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(normalizedUser));
-    } catch (error) {
-      return;
     }
   }
 
@@ -116,34 +101,12 @@ export function useAuth() {
   return context;
 }
 
-function readStoredUser() {
-  let storedUser = null;
-
+function removeLegacyStoredAuthentication() {
   try {
-    storedUser = localStorage.getItem(AUTH_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_AUTH_STORAGE_KEY);
   } catch (error) {
-    return null;
+    return;
   }
-
-  if (!storedUser) {
-    return null;
-  }
-
-  try {
-    return normalizeUserRole(JSON.parse(storedUser));
-  } catch (error) {
-    safelyRemoveStoredUser();
-    return null;
-  }
-}
-
-function safelyRemoveStoredUser() {
-  try {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-  } catch (error) {
-    return null;
-  }
-  return null;
 }
 
 function getHomePathForRole(role) {

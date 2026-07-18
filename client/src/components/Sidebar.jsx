@@ -1,47 +1,53 @@
-import { useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { getDashboardActions } from "../services/api";
+import { getApiAssetUrl, getDashboardActions } from "../services/api";
+import SidebarIcon from "./SidebarIcon";
+import {
+  ADMIN_NAVIGATION_ITEMS,
+  PLAYER_NAVIGATION_ITEMS,
+} from "./sidebarNavigation";
+import { getSidebarAvatarMode, getSidebarIdentity } from "./sidebarViewModel";
 
-const navigationItems = [
-  { id: "profile", label: "Profile", shortLabel: "PF", to: "/profile" },
-  { id: "dashboard", label: "Dashboard", shortLabel: "DB", to: "/dashboard", end: true },
-  { id: "leaderboard", label: "Leaderboard", shortLabel: "LB", to: "/leaderboard" },
-  { id: "head-to-head", label: "Head-to-Head", shortLabel: "HH", to: "/head-to-head" },
-  { id: "submit-match", label: "Submit Match", shortLabel: "SM", to: "/dashboard/submit-match" },
-  { id: "matches", label: "My Matches", shortLabel: "MM", to: "/dashboard/matches" },
-  { id: "my-activity", label: "My Activity", shortLabel: "MA", to: "/activity" },
-];
+const SIDEBAR_SCROLL_STORAGE_KEY = "bragright_sidebar_scroll";
 
-const adminNavigationItems = [
-  { id: "admin-profile", label: "Admin Profile", shortLabel: "AP", to: "/admin/profile" },
-  { id: "admin-dashboard", label: "Admin Dashboard", shortLabel: "AD", to: "/admin/dashboard" },
-  { id: "admin-activity", label: "Admin Activity", shortLabel: "AA", to: "/admin/activity" },
-  { id: "admin-users", label: "Admin Users", shortLabel: "AU", to: "/admin/users" },
-  { id: "admin-settings", label: "Admin Settings", shortLabel: "AS", to: "/admin/settings" },
-  { id: "admin-disputes", label: "Admin Disputes", shortLabel: "DI", to: "/admin/disputes" },
-];
-
-// Sidebar is the persistent navigation for the player dashboard.
-// Keeping navigation here means the dashboard layout can reuse it across future pages.
-export default function Sidebar({ isOpen = false, isCollapsed = false, isMobileView = false, onClose }) {
+function Sidebar({
+  isOpen = false,
+  isCollapsed = false,
+  isMobileView = false,
+  currentRank,
+  onClose,
+  onLogout,
+}) {
   const { user } = useAuth();
   const location = useLocation();
+  const sidebarRef = useRef(null);
+  const navigationRef = useRef(null);
+  const closeButtonRef = useRef(null);
   const [actionCounts, setActionCounts] = useState({
     total_actions_count: 0,
     disputed_matches_count: 0,
   });
   const isAdminView = location.pathname.startsWith("/admin");
-  const visibleNavigationItems =
-    user?.role === "admin" || user?.is_admin
-      ? [...adminNavigationItems, ...navigationItems]
-      : navigationItems;
+  const visibleNavigationItems = useMemo(
+    () =>
+      user?.role === "admin" || user?.is_admin
+        ? [...ADMIN_NAVIGATION_ITEMS, ...PLAYER_NAVIGATION_ITEMS]
+        : PLAYER_NAVIGATION_ITEMS,
+    [user?.is_admin, user?.role]
+  );
+  const identity = useMemo(() => getSidebarIdentity(user), [
+    user?.display_name,
+    user?.email,
+    user?.profile_image,
+    user?.username,
+  ]);
 
-  function handleNavClick() {
+  const handleNavClick = useCallback(() => {
     if (isMobileView) {
       onClose?.();
     }
-  }
+  }, [isMobileView, onClose]);
 
   useEffect(() => {
     let isMounted = true;
@@ -68,8 +74,60 @@ export default function Sidebar({ isOpen = false, isCollapsed = false, isMobileV
     };
   }, [user?.id, user?.role]);
 
+  useEffect(() => {
+    if (!navigationRef.current) {
+      return;
+    }
+    try {
+      navigationRef.current.scrollTop = Number(sessionStorage.getItem(SIDEBAR_SCROLL_STORAGE_KEY)) || 0;
+    } catch (error) {
+      return;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isMobileView && isOpen) {
+      closeButtonRef.current?.focus();
+    }
+  }, [isMobileView, isOpen]);
+
+  function preserveScrollPosition() {
+    try {
+      sessionStorage.setItem(
+        SIDEBAR_SCROLL_STORAGE_KEY,
+        String(navigationRef.current?.scrollTop || 0)
+      );
+    } catch (error) {
+      return;
+    }
+  }
+
+  function handleSidebarKeyDown(event) {
+    if (!isMobileView || !isOpen || event.key !== "Tab") {
+      return;
+    }
+    const focusableElements = Array.from(
+      sidebarRef.current?.querySelectorAll(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ) || []
+    );
+    if (!focusableElements.length) {
+      return;
+    }
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    if (event.shiftKey && document.activeElement === firstElement) {
+      event.preventDefault();
+      lastElement.focus();
+    } else if (!event.shiftKey && document.activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  }
+
   return (
     <aside
+      ref={sidebarRef}
       className={[
         "dashboard-sidebar",
         isOpen ? "dashboard-sidebar-open" : "",
@@ -79,15 +137,21 @@ export default function Sidebar({ isOpen = false, isCollapsed = false, isMobileV
         .filter(Boolean)
         .join(" ")}
       aria-hidden={isMobileView && !isOpen ? "true" : undefined}
+      aria-label="BragRight navigation"
+      aria-modal={isMobileView && isOpen ? "true" : undefined}
+      inert={isMobileView && !isOpen ? "" : undefined}
+      role={isMobileView ? "dialog" : undefined}
+      onKeyDown={handleSidebarKeyDown}
     >
       <div className="sidebar-top-row">
         <div className="sidebar-brand">
-          <p className="sidebar-eyebrow">{isCollapsed ? "BR" : "BRAGRIGHT"}</p>
-          <h2 className="sidebar-title">{isCollapsed ? (isAdminView ? "AD" : "PD") : isAdminView ? "Admin Dashboard" : "Player Dashboard"}</h2>
+          <p className="sidebar-eyebrow"><span className="sidebar-brand-mark">BR</span><span className="sidebar-expanded-copy">BRAGRIGHT</span></p>
+          <h2 className="sidebar-title sidebar-expanded-copy">{isAdminView ? "Admin Arena" : "Player Arena"}</h2>
         </div>
 
         {isMobileView ? (
           <button
+            ref={closeButtonRef}
             type="button"
             className="sidebar-close-button"
             aria-label="Close navigation menu"
@@ -98,35 +162,135 @@ export default function Sidebar({ isOpen = false, isCollapsed = false, isMobileV
         ) : null}
       </div>
 
-      <p className="sidebar-section-label">{isCollapsed ? "Nav" : "Overview"}</p>
+      <SidebarUserBlock identity={identity} currentRank={currentRank} isCollapsed={isCollapsed} isAdminView={isAdminView} onClick={handleNavClick} />
 
-      <nav className="sidebar-nav" aria-label="Dashboard navigation">
+      <nav ref={navigationRef} className="sidebar-nav" aria-label="Primary navigation" onScroll={preserveScrollPosition}>
+        <p className="sidebar-section-label"><span className="sidebar-collapsed-copy">Nav</span><span className="sidebar-expanded-copy">Command deck</span></p>
         {visibleNavigationItems.map((item) => (
-          <NavLink
+          <SidebarNavigationItem
             key={item.id}
-            to={item.to}
-            end={item.end}
-            title={isCollapsed ? item.label : undefined}
+            item={item}
+            identity={identity}
+            isCollapsed={isCollapsed}
+            badge={
+              item.id === "matches"
+                ? actionCounts.total_actions_count
+                : item.id === "admin-disputes"
+                  ? actionCounts.disputed_matches_count
+                  : 0
+            }
             onClick={handleNavClick}
-            className={({ isActive }) => {
-              const activeClass = isActive ? " sidebar-link-active" : "";
-
-              return `sidebar-link${activeClass}`;
-            }}
-          >
-            <span className="sidebar-link-icon" aria-hidden="true">
-              {item.shortLabel}
-            </span>
-            <span className="sidebar-link-label">{item.label}</span>
-            {item.id === "matches" && actionCounts.total_actions_count > 0 ? (
-              <span className="sidebar-link-badge">{actionCounts.total_actions_count}</span>
-            ) : null}
-            {item.id === "admin-disputes" && actionCounts.disputed_matches_count > 0 ? (
-              <span className="sidebar-link-badge">{actionCounts.disputed_matches_count}</span>
-            ) : null}
-          </NavLink>
+          />
         ))}
       </nav>
+
+      <div className="sidebar-footer">
+        <button type="button" className="sidebar-logout" onClick={onLogout} title={isCollapsed ? "Log out" : undefined}>
+          <span className="sidebar-link-icon"><SidebarIcon name="logout" decorative /></span>
+          <span className="sidebar-link-label">Log out</span>
+          <span className="sidebar-tooltip" role="tooltip">Log out</span>
+        </button>
+      </div>
     </aside>
   );
 }
+
+const SidebarNavigationItem = memo(function SidebarNavigationItem({
+  item,
+  identity,
+  isCollapsed,
+  badge,
+  onClick,
+}) {
+  return (
+    <NavLink
+      to={item.to}
+      end={item.end}
+      title={isCollapsed ? item.label : undefined}
+      aria-label={isCollapsed ? item.label : undefined}
+      onClick={onClick}
+      className={({ isActive }) => `sidebar-link${isActive ? " sidebar-link-active" : ""}`}
+    >
+      <span className="sidebar-link-icon">
+        {item.id === "profile" ? (
+          <SidebarAvatar identity={identity} compact />
+        ) : (
+          <SidebarIcon name={item.icon} decorative />
+        )}
+      </span>
+      <span className="sidebar-link-label">{item.label}</span>
+      <span className="sidebar-tooltip" role="tooltip">{item.label}</span>
+      {badge > 0 ? (
+        <span className="sidebar-link-badge" aria-label={`${badge} pending actions`}>
+          {badge}
+        </span>
+      ) : null}
+    </NavLink>
+  );
+});
+
+const SidebarUserBlock = memo(function SidebarUserBlock({ identity, currentRank, isCollapsed, isAdminView, onClick }) {
+  return (
+    <NavLink
+      to={isAdminView ? "/admin/profile" : "/profile"}
+      className="sidebar-user-block"
+      aria-label={`${identity.displayName}, signed-in user`}
+      title={isCollapsed ? identity.displayName : undefined}
+      onClick={onClick}
+    >
+      <SidebarAvatar identity={identity} />
+      <div className="sidebar-user-copy">
+        <strong>{identity.displayName}</strong>
+        {identity.username ? <span>@{identity.username}</span> : null}
+        <div className="sidebar-user-context">
+          {currentRank ? (
+            <span className="sidebar-user-rank" aria-label={`Current rank: ${currentRank}`}>
+              <SidebarIcon name="crown" decorative /> Rank #{currentRank}
+            </span>
+          ) : null}
+          <span className="sidebar-session-status">
+            <span className="sidebar-session-dot" aria-hidden="true" />
+            Session active
+          </span>
+        </div>
+      </div>
+      <span className="sidebar-tooltip" role="tooltip">{identity.displayName}</span>
+    </NavLink>
+  );
+});
+
+function SidebarAvatar({ identity, compact = false }) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [identity.image]);
+
+  const className = `sidebar-avatar${compact ? " sidebar-avatar-compact" : ""}`;
+  const avatarMode = getSidebarAvatarMode(identity, imageFailed);
+  if (avatarMode === "image") {
+    return (
+      <span className={className}>
+        <img
+          src={getApiAssetUrl(identity.image)}
+          alt={`${identity.displayName} profile avatar`}
+          onError={() => setImageFailed(true)}
+        />
+      </span>
+    );
+  }
+  if (avatarMode === "initials") {
+    return (
+      <span className={className} role="img" aria-label={`${identity.displayName} initials avatar`}>
+        <span aria-hidden="true">{identity.initials}</span>
+      </span>
+    );
+  }
+  return (
+    <span className={className}>
+      <SidebarIcon name="profile" label="Default profile avatar" />
+    </span>
+  );
+}
+
+export default memo(Sidebar);

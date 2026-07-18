@@ -6,20 +6,25 @@ import AppErrorBoundary from "./components/AppErrorBoundary";
 import { AuthProvider } from "./context/AuthContext";
 import { LoadingProvider } from "./context/LoadingContext";
 import { PlayerDirectoryProvider } from "./context/PlayerDirectoryContext";
+import { ThemeProvider } from "./context/ThemeContext";
+import "./styles/tokens.css";
+import "./styles/design-system.css";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <AppErrorBoundary>
-        <LoadingProvider>
-          <AuthProvider>
-            <PlayerDirectoryProvider>
-              <App />
-            </PlayerDirectoryProvider>
-          </AuthProvider>
-        </LoadingProvider>
-      </AppErrorBoundary>
-    </BrowserRouter>
+    <ThemeProvider>
+      <BrowserRouter>
+        <AppErrorBoundary>
+          <LoadingProvider>
+            <AuthProvider>
+              <PlayerDirectoryProvider>
+                <App />
+              </PlayerDirectoryProvider>
+            </AuthProvider>
+          </LoadingProvider>
+        </AppErrorBoundary>
+      </BrowserRouter>
+    </ThemeProvider>
   </React.StrictMode>
 );

@@ -22,10 +22,18 @@ from .auth import (
     VALID_USER_STATUSES,
     get_current_user_from_request,
     get_user_status,
+    require_admin,
     serialize_user,
 )
 from ..services.admin_access import ADMIN_ROLE, PLAYER_ROLE, get_user_role, is_bootstrap_admin_email
 from ..services.activity_logger import get_activity_logs, record_activity
+from ..services.auth_sessions import revoke_user_sessions
+from ..services.api_security import (
+    get_json_object,
+    pagination_metadata,
+    parse_bounded_int_query,
+)
+from ..services.dtos import admin_user_dto
 from ..services.match_workflow import (
     MATCH_RESULT_SOURCE_ADMIN,
     MATCH_STATUS_CONFIRMED,
@@ -49,6 +57,38 @@ VALID_RESOLUTION_ACTIONS = {"confirm_result", "reject_result", "override_result"
 VALID_ROLE_UPDATES = {PLAYER_ROLE, ADMIN_ROLE}
 DEFAULT_ADMIN_LIST_LIMIT = 50
 MAX_ADMIN_LIST_LIMIT = 200
+VALID_MATCH_FILTER_STATUSES = {
+    "match_requested",
+    "scheduled",
+    "pending_result",
+    "pending_confirmation",
+    "confirmed",
+    "disputed",
+    "rejected",
+    "cancelled",
+    "expired",
+}
+VALID_ACTIVITY_ACTION_TYPES = {
+    "login",
+    "profile_updated",
+    "proof_uploaded",
+    "match_scheduled",
+    "match_request_accepted",
+    "match_request_declined",
+    "result_submitted",
+    "match_confirmed",
+    "match_disputed",
+    "match_cancelled",
+    "admin_user_created",
+    "admin_role_changed",
+    "admin_status_changed",
+    "admin_password_reset",
+    "admin_settings_updated",
+    "admin_dispute_resolved",
+    "admin_match_resolved",
+    "admin_match_rejected",
+    "admin_match_overridden",
+}
 
 
 def _require_admin_user():
@@ -115,24 +155,7 @@ def _serialize_admin_match(match_document, users_by_id=None):
 
 
 def _serialize_admin_user(user_document):
-    created_at = user_document.get("created_at")
-    updated_at = user_document.get("updated_at")
-    last_login_at = user_document.get("last_login_at")
-    resolved_role = get_user_role(user_document, current_app.config)
-    status = get_user_status(user_document)
-
-    return {
-        "id": str(user_document["_id"]),
-        "username": user_document.get("username", ""),
-        "email": user_document.get("email", ""),
-        "role": resolved_role,
-        "status": status,
-        "is_active": status == USER_STATUS_ACTIVE,
-        "created_at": created_at.isoformat() if created_at else None,
-        "updated_at": updated_at.isoformat() if updated_at else None,
-        "last_login_at": last_login_at.isoformat() if last_login_at else None,
-        "last_login_user_agent": user_document.get("last_login_user_agent"),
-    }
+    return admin_user_dto(user_document)
 
 
 def _load_match(match_id, *, required_status=None):
@@ -308,10 +331,17 @@ def _build_user_filters():
 
     query = {}
 
-    if role in VALID_ROLE_UPDATES:
+    if role and role not in VALID_ROLE_UPDATES:
+        return None, None, "role must be player or admin."
+    if status and status not in VALID_USER_STATUSES:
+        return None, None, "status must be active or disabled."
+    if len(search) > 100:
+        return None, None, "search must be 100 characters or fewer."
+
+    if role:
         query["role"] = role
 
-    if status in VALID_USER_STATUSES:
+    if status:
         query["status"] = status
 
     if search:
@@ -321,7 +351,11 @@ def _build_user_filters():
             {"email": {"$regex": escaped_search, "$options": "i"}},
         ]
 
-    return query, {"role": role or "all", "status": status or "all", "search": search}
+    return (
+        query,
+        {"role": role or "all", "status": status or "all", "search": search},
+        None,
+    )
 
 
 def _count_admin_users(*, exclude_user_id=None):
@@ -351,16 +385,61 @@ def _generate_temporary_password(length=12):
 
 
 def _parse_limit_arg(default_limit=DEFAULT_ADMIN_LIST_LIMIT, max_limit=MAX_ADMIN_LIST_LIMIT):
-    raw_value = str(request.args.get("limit", "")).strip()
+    return parse_bounded_int_query(
+        "limit",
+        default=default_limit,
+        maximum=max_limit,
+    )
+
+
+def _parse_page_arg():
+    return parse_bounded_int_query(
+        "page",
+        default=1,
+        maximum=100000,
+    )
+
+
+def _parse_utc_datetime(value, field_name):
+    raw_value = str(value or "").strip()
     if not raw_value:
-        return default_limit
-
+        return None, None
     try:
-        parsed_limit = int(raw_value)
+        parsed = datetime.fromisoformat(raw_value)
     except ValueError:
-        return default_limit
+        return None, f"{field_name} is invalid."
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc), None
 
-    return max(1, min(parsed_limit, max_limit))
+
+def _validate_activity_filters(filters, *, allow_action_type):
+    role = str(filters.get("role") or "").strip().lower()
+    if role and role not in VALID_ROLE_UPDATES:
+        return "role must be player or admin."
+
+    user_id = str(filters.get("user") or "").strip()
+    if user_id:
+        try:
+            ObjectId(user_id)
+        except (InvalidId, TypeError):
+            return "user must be a valid user ID."
+
+    action_type = str(filters.get("action_type") or "").strip().lower()
+    if action_type and (
+        not allow_action_type or action_type not in VALID_ACTIVITY_ACTION_TYPES
+    ):
+        return "action_type is invalid."
+
+    start_value, start_error = _parse_utc_datetime(filters.get("start_date"), "start_date")
+    if start_error:
+        return start_error
+    end_value, end_error = _parse_utc_datetime(filters.get("end_date"), "end_date")
+    if end_error:
+        return end_error
+    if start_value and end_value and start_value > end_value:
+        return "start_date must be on or before end_date."
+    return None
 
 
 def _backfill_user_status_fields():
@@ -447,6 +526,7 @@ def _build_admin_profile_payload(current_user):
 
 @admin_bp.get("/summary")
 @admin_bp.get("/dashboard/summary")
+@require_admin
 def get_admin_summary():
     try:
         current_user, auth_error, auth_status = _require_admin_user()
@@ -484,6 +564,7 @@ def get_admin_summary():
 
 
 @admin_bp.get("/profile/me")
+@require_admin
 def get_admin_profile():
     try:
         current_user, auth_error, auth_status = _require_admin_user()
@@ -521,6 +602,7 @@ def get_admin_profile():
 
 
 @admin_bp.get("/users")
+@require_admin
 def get_admin_users():
     try:
         _, auth_error, auth_status = _require_admin_user()
@@ -529,8 +611,22 @@ def get_admin_users():
 
         _backfill_user_status_fields()
         users = get_users_collection(config=current_app.config, logger=current_app.logger)
-        query, applied_filters = _build_user_filters()
-        documents = list(users.find(query).sort("created_at", DESCENDING))
+        query, applied_filters, filter_error = _build_user_filters()
+        if filter_error:
+            return jsonify({"success": False, "message": filter_error}), 422
+        limit, limit_error = _parse_limit_arg()
+        if limit_error:
+            return limit_error
+        page, page_error = _parse_page_arg()
+        if page_error:
+            return page_error
+        total = users.count_documents(query)
+        documents = list(
+            users.find(query)
+            .sort("created_at", DESCENDING)
+            .skip((page - 1) * limit)
+            .limit(limit)
+        )
 
         return jsonify(
             {
@@ -539,6 +635,9 @@ def get_admin_users():
                 "data": {
                     "users": [_serialize_admin_user(document) for document in documents],
                     "filters": applied_filters,
+                    **pagination_metadata(
+                        page=page, limit=limit, total=total
+                    ),
                 },
             }
         ), 200
@@ -566,13 +665,18 @@ def get_admin_users():
 
 
 @admin_bp.post("/users")
+@require_admin
 def create_admin_user():
     try:
         current_user, auth_error, auth_status = _require_admin_user()
         if auth_error:
             return auth_error, auth_status
 
-        payload = request.get_json(silent=True) or {}
+        payload, body_error = get_json_object(
+            allowed_fields={"username", "email", "role", "temporary_password"}
+        )
+        if body_error:
+            return body_error
         parsed_payload, validation_error = _parse_create_user_payload(payload)
         if validation_error:
             return jsonify({"success": False, "message": validation_error}), 400
@@ -621,7 +725,6 @@ def create_admin_user():
                 "message": "User created successfully.",
                 "data": {
                     "user": _serialize_admin_user(created_user),
-                    "temporary_password": parsed_payload["temporary_password"],
                 },
             }
         ), 201
@@ -651,6 +754,7 @@ def create_admin_user():
 
 
 @admin_bp.patch("/users/<user_id>/role")
+@require_admin
 def update_admin_user_role(user_id):
     try:
         current_user, auth_error, auth_status = _require_admin_user()
@@ -661,7 +765,9 @@ def update_admin_user_role(user_id):
         if error_response:
             return error_response, status_code
 
-        payload = request.get_json(silent=True) or {}
+        payload, body_error = get_json_object(allowed_fields={"role"})
+        if body_error:
+            return body_error
         next_role, validation_error = _parse_role_payload(payload)
         if validation_error:
             return jsonify({"success": False, "message": validation_error}), 400
@@ -741,6 +847,7 @@ def update_admin_user_role(user_id):
 
 
 @admin_bp.patch("/users/<user_id>/status")
+@require_admin
 def update_admin_user_status(user_id):
     try:
         current_user, auth_error, auth_status = _require_admin_user()
@@ -751,7 +858,11 @@ def update_admin_user_status(user_id):
         if error_response:
             return error_response, status_code
 
-        payload = request.get_json(silent=True) or {}
+        payload, body_error = get_json_object(
+            allowed_fields={"status", "is_active"}
+        )
+        if body_error:
+            return body_error
         next_status, validation_error = _parse_status_payload(payload)
         if validation_error:
             return jsonify({"success": False, "message": validation_error}), 400
@@ -781,6 +892,8 @@ def update_admin_user_status(user_id):
                 }
             },
         )
+        if next_status == USER_STATUS_DISABLED:
+            revoke_user_sessions(str(target_user["_id"]))
         updated_user = users.find_one({"_id": target_user["_id"]})
         record_activity(
             user=current_user,
@@ -826,6 +939,7 @@ def update_admin_user_status(user_id):
 
 @admin_bp.post("/users/<user_id>/reset-password")
 @admin_bp.patch("/users/<user_id>/password")
+@require_admin
 def reset_admin_user_password(user_id):
     try:
         current_user, auth_error, auth_status = _require_admin_user()
@@ -836,18 +950,31 @@ def reset_admin_user_password(user_id):
         if error_response:
             return error_response, status_code
 
-        temporary_password = _generate_temporary_password()
+        payload, body_error = get_json_object(
+            allowed_fields={"new_password"}
+        )
+        if body_error:
+            return body_error
+        new_password = str(payload.get("new_password", ""))
+        if len(new_password) < 12 or len(new_password) > 128:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "new_password must be between 12 and 128 characters.",
+                }
+            ), 422
 
         users = get_users_collection(config=current_app.config, logger=current_app.logger)
         users.update_one(
             {"_id": target_user["_id"]},
             {
                 "$set": {
-                    "password_hash": generate_password_hash(temporary_password),
+                    "password_hash": generate_password_hash(new_password),
                     "updated_at": datetime.now(timezone.utc),
                 }
             },
         )
+        revoke_user_sessions(str(target_user["_id"]))
         record_activity(
             user=current_user,
             action_type="admin_password_reset",
@@ -861,10 +988,9 @@ def reset_admin_user_password(user_id):
         return jsonify(
             {
                 "success": True,
-                "message": "Temporary password generated successfully.",
+                "message": "Password reset successfully.",
                 "data": {
                     "user_id": str(target_user["_id"]),
-                    "temporary_password": temporary_password,
                 },
             }
         ), 200
@@ -892,6 +1018,7 @@ def reset_admin_user_password(user_id):
 
 
 @admin_bp.get("/settings")
+@require_admin
 def get_admin_settings():
     try:
         _, auth_error, auth_status = _require_admin_user()
@@ -930,13 +1057,36 @@ def get_admin_settings():
 
 
 @admin_bp.patch("/settings")
+@require_admin
 def update_admin_settings():
     try:
         current_user, auth_error, auth_status = _require_admin_user()
         if auth_error:
             return auth_error, auth_status
 
-        payload = request.get_json(silent=True) or {}
+        payload, body_error = get_json_object(
+            allowed_fields={"duplicate_window_minutes"}
+        )
+        if body_error:
+            return body_error
+        if "duplicate_window_minutes" not in payload:
+            return jsonify(
+                {"success": False, "message": "duplicate_window_minutes is required."}
+            ), 422
+        try:
+            duplicate_window_minutes = int(payload["duplicate_window_minutes"])
+        except (TypeError, ValueError):
+            return jsonify(
+                {"success": False, "message": "duplicate_window_minutes must be a whole number."}
+            ), 422
+        if duplicate_window_minutes < 1 or duplicate_window_minutes > 60:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "duplicate_window_minutes must be between 1 and 60.",
+                }
+            ), 422
+        payload["duplicate_window_minutes"] = duplicate_window_minutes
         settings = update_system_settings(payload)
         record_activity(
             user=current_user,
@@ -975,6 +1125,7 @@ def update_admin_settings():
 
 
 @admin_bp.get("/activity")
+@require_admin
 def get_admin_activity():
     try:
         _, auth_error, auth_status = _require_admin_user()
@@ -988,7 +1139,24 @@ def get_admin_activity():
             "start_date": request.args.get("start_date"),
             "end_date": request.args.get("end_date"),
         }
-        serialized = get_activity_logs(filters=filters, limit=_parse_limit_arg())
+        filter_error = _validate_activity_filters(
+            filters,
+            allow_action_type=True,
+        )
+        if filter_error:
+            return jsonify({"success": False, "message": filter_error}), 422
+        limit, limit_error = _parse_limit_arg()
+        if limit_error:
+            return limit_error
+        page, page_error = _parse_page_arg()
+        if page_error:
+            return page_error
+        serialized, total = get_activity_logs(
+            filters=filters,
+            limit=limit,
+            page=page,
+            return_total=True,
+        )
 
         return jsonify(
             {
@@ -996,6 +1164,9 @@ def get_admin_activity():
                 "message": "Activity logs loaded successfully.",
                 "data": {
                     "logs": serialized,
+                    **pagination_metadata(
+                        page=page, limit=limit, total=total
+                    ),
                 },
             }
         ), 200
@@ -1023,6 +1194,7 @@ def get_admin_activity():
 
 
 @admin_bp.get("/logins")
+@require_admin
 def get_admin_logins():
     try:
         _, auth_error, auth_status = _require_admin_user()
@@ -1035,7 +1207,25 @@ def get_admin_logins():
             "start_date": request.args.get("start_date"),
             "end_date": request.args.get("end_date"),
         }
-        serialized = get_activity_logs(filters=filters, action_types=["login"], limit=_parse_limit_arg())
+        filter_error = _validate_activity_filters(
+            filters,
+            allow_action_type=False,
+        )
+        if filter_error:
+            return jsonify({"success": False, "message": filter_error}), 422
+        limit, limit_error = _parse_limit_arg()
+        if limit_error:
+            return limit_error
+        page, page_error = _parse_page_arg()
+        if page_error:
+            return page_error
+        serialized, total = get_activity_logs(
+            filters=filters,
+            action_types=["login"],
+            limit=limit,
+            page=page,
+            return_total=True,
+        )
 
         return jsonify(
             {
@@ -1043,6 +1233,9 @@ def get_admin_logins():
                 "message": "Login logs loaded successfully.",
                 "data": {
                     "logs": serialized,
+                    **pagination_metadata(
+                        page=page, limit=limit, total=total
+                    ),
                 },
             }
         ), 200
@@ -1070,6 +1263,7 @@ def get_admin_logins():
 
 
 @admin_bp.get("/matches")
+@require_admin
 def get_admin_matches():
     try:
         _, auth_error, auth_status = _require_admin_user()
@@ -1083,6 +1277,10 @@ def get_admin_matches():
 
         query = {}
         if status_filter:
+            if status_filter not in VALID_MATCH_FILTER_STATUSES:
+                return jsonify(
+                    {"success": False, "message": "status is invalid."}
+                ), 422
             query["status"] = status_filter
 
         if player_filter:
@@ -1095,20 +1293,38 @@ def get_admin_matches():
 
         date_query = {}
         if start_date:
-            try:
-                date_query["$gte"] = datetime.fromisoformat(start_date).astimezone(timezone.utc)
-            except ValueError:
-                return jsonify({"success": False, "message": "date_from is invalid."}), 400
+            parsed_start_date, date_error = _parse_utc_datetime(
+                start_date,
+                "date_from",
+            )
+            if date_error:
+                return jsonify({"success": False, "message": date_error}), 422
+            date_query["$gte"] = parsed_start_date
         if end_date:
-            try:
-                date_query["$lte"] = datetime.fromisoformat(end_date).astimezone(timezone.utc)
-            except ValueError:
-                return jsonify({"success": False, "message": "date_to is invalid."}), 400
+            parsed_end_date, date_error = _parse_utc_datetime(
+                end_date,
+                "date_to",
+            )
+            if date_error:
+                return jsonify({"success": False, "message": date_error}), 422
+            date_query["$lte"] = parsed_end_date
         if date_query:
             query["created_at"] = date_query
 
         matches = get_matches_collection(config=current_app.config, logger=current_app.logger)
-        documents = list(matches.find(query).sort("updated_at", DESCENDING).limit(_parse_limit_arg()))
+        limit, limit_error = _parse_limit_arg()
+        if limit_error:
+            return limit_error
+        page, page_error = _parse_page_arg()
+        if page_error:
+            return page_error
+        total = matches.count_documents(query)
+        documents = list(
+            matches.find(query)
+            .sort("updated_at", DESCENDING)
+            .skip((page - 1) * limit)
+            .limit(limit)
+        )
 
         user_ids = []
         for document in documents:
@@ -1134,6 +1350,9 @@ def get_admin_matches():
                         "date_from": start_date,
                         "date_to": end_date,
                     },
+                    **pagination_metadata(
+                        page=page, limit=limit, total=total
+                    ),
                 },
             }
         ), 200
@@ -1161,14 +1380,28 @@ def get_admin_matches():
 
 
 @admin_bp.get("/disputes")
+@require_admin
 def get_admin_disputes():
     try:
         current_user, auth_error, auth_status = _require_admin_user()
         if auth_error:
             return auth_error, auth_status
 
+        limit, limit_error = _parse_limit_arg()
+        if limit_error:
+            return limit_error
+        page, page_error = _parse_page_arg()
+        if page_error:
+            return page_error
         matches = get_matches_collection(config=current_app.config, logger=current_app.logger)
-        documents = list(matches.find({"status": MATCH_STATUS_DISPUTED}).sort("disputed_at", DESCENDING))
+        dispute_query = {"status": MATCH_STATUS_DISPUTED}
+        total = matches.count_documents(dispute_query)
+        documents = list(
+            matches.find(dispute_query)
+            .sort("disputed_at", DESCENDING)
+            .skip((page - 1) * limit)
+            .limit(limit)
+        )
 
         user_ids = []
         for document in documents:
@@ -1190,6 +1423,9 @@ def get_admin_disputes():
                 "message": "Disputed matches loaded successfully.",
                 "data": {
                     "matches": serialized_matches,
+                    **pagination_metadata(
+                        page=page, limit=limit, total=total
+                    ),
                 },
             }
         ), 200
@@ -1217,6 +1453,7 @@ def get_admin_disputes():
 
 
 @admin_bp.get("/disputes/<match_id>")
+@require_admin
 def get_admin_dispute_detail(match_id):
     try:
         _, auth_error, auth_status = _require_admin_user()
@@ -1265,6 +1502,7 @@ def get_admin_dispute_detail(match_id):
 
 
 @admin_bp.get("/matches/<match_id>")
+@require_admin
 def get_admin_match_detail(match_id):
     try:
         _, auth_error, auth_status = _require_admin_user()
@@ -1314,6 +1552,7 @@ def get_admin_match_detail(match_id):
 
 @admin_bp.patch("/disputes/<match_id>/resolve")
 @admin_bp.patch("/matches/<match_id>/resolve")
+@require_admin
 def resolve_admin_dispute(match_id):
     try:
         current_user, auth_error, auth_status = _require_admin_user()
@@ -1324,7 +1563,17 @@ def resolve_admin_dispute(match_id):
         if error_response:
             return error_response, status_code
 
-        payload = request.get_json(silent=True) or {}
+        payload, body_error = get_json_object(
+            allowed_fields={
+                "resolution_action",
+                "resolution_note",
+                "override_player_score",
+                "override_opponent_score",
+                "override_winner_id",
+            }
+        )
+        if body_error:
+            return body_error
         parsed_payload, validation_error = _parse_resolution_payload(payload)
         if validation_error:
             return jsonify({"success": False, "message": validation_error}), 400

@@ -1,5 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import { Button } from "./ui";
 
 export default class AppErrorBoundary extends React.Component {
   constructor(props) {
@@ -35,12 +36,12 @@ export default class AppErrorBoundary extends React.Component {
             <h1 className="route-loading-title">This page hit an unexpected error.</h1>
             <p className="panel-subtitle">{this.state.errorMessage}</p>
             <div className="admin-resolution-actions">
-              <button type="button" className="auth-button" onClick={this.handleReload}>
+              <Button className="auth-button" onClick={this.handleReload}>
                 Reload page
-              </button>
-              <Link className="inline-action-button" to="/login">
+              </Button>
+              <Button as={Link} variant="secondary" className="inline-action-button" to="/login">
                 Go to login
-              </Link>
+              </Button>
             </div>
           </div>
         </section>

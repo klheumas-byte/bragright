@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import ActivityList from "../components/ActivityList";
 import ErrorState from "../components/ErrorState";
 import SectionLoader from "../components/SectionLoader";
 import { useAuth } from "../context/AuthContext";
@@ -63,7 +64,7 @@ export default function AdminProfile() {
   return (
     <DashboardLayout
       title="Admin Profile"
-      description=""
+      description="Your operator identity and recent arena actions."
     >
       <ErrorState message={errorMessage} onRetry={loadAdminProfile} />
 
@@ -149,15 +150,7 @@ export default function AdminProfile() {
             </div>
 
             {profile.recent_admin_activity.length ? (
-              <div className="admin-activity-list">
-                {profile.recent_admin_activity.map((activity) => (
-                  <article key={activity.id} className="admin-activity-card">
-                    <p className="admin-dispute-list-title">{activity.action_label}</p>
-                    <p className="match-card-meta">{activity.summary || "Recorded admin activity."}</p>
-                    <p className="match-card-meta">{formatDate(activity.created_at)}</p>
-                  </article>
-                ))}
-              </div>
+              <ActivityList activities={profile.recent_admin_activity} admin compact label="Your latest admin actions" />
             ) : (
               <div className="match-empty-state">
                 <p className="empty-state-copy">No admin activity has been recorded yet.</p>

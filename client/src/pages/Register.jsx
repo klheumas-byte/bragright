@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import SectionSkeleton from "../components/SectionSkeleton";
+import { Alert, Button, Card, FormField, Input } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 
 const initialFormState = {
@@ -43,11 +44,11 @@ export default function Register() {
   if (isInitializing) {
     return (
       <section className="auth-page">
-        <div className="auth-card">
+        <Card as="div" variant="profile" className="auth-card">
           <p className="auth-kicker">Loading</p>
           <h1 className="auth-title">Checking your session</h1>
           <SectionSkeleton lines={3} />
-        </div>
+        </Card>
       </section>
     );
   }
@@ -58,7 +59,7 @@ export default function Register() {
 
   return (
     <section className="auth-page">
-      <div className="auth-card">
+      <Card as="div" variant="profile" className="auth-card">
         <p className="auth-kicker">Create your account</p>
         <h1 className="auth-title">Start tracking your edge</h1>
         <p className="auth-copy">
@@ -67,9 +68,9 @@ export default function Register() {
         </p>
 
         <form className="auth-form" onSubmit={handleSubmit}>
-          <label className="form-field">
-            Username
-            <input
+          <FormField label="Username" htmlFor="register-username" required className="form-field">
+            <Input
+              id="register-username"
               name="username"
               type="text"
               value={formData.username}
@@ -77,11 +78,11 @@ export default function Register() {
               placeholder="Competitive name"
               required
             />
-          </label>
+          </FormField>
 
-          <label className="form-field">
-            Email
-            <input
+          <FormField label="Email" htmlFor="register-email" required className="form-field">
+            <Input
+              id="register-email"
               name="email"
               type="email"
               value={formData.email}
@@ -89,32 +90,48 @@ export default function Register() {
               placeholder="you@example.com"
               required
             />
-          </label>
+          </FormField>
 
-          <label className="form-field">
-            Password
-            <input
+          <FormField
+            label="Password"
+            htmlFor="register-password"
+            required
+            description="Use at least 8 characters."
+            className="form-field"
+          >
+            <Input
+              id="register-password"
               name="password"
               type="password"
               value={formData.password}
               onChange={handleChange}
               placeholder="At least 8 characters"
               minLength="8"
+              description="Use at least 8 characters."
               required
             />
-          </label>
+          </FormField>
 
-          {statusMessage ? <p className="auth-message error-text">{statusMessage}</p> : null}
+          {statusMessage ? (
+            <Alert tone="error" className="auth-message error-text">
+              {statusMessage}
+            </Alert>
+          ) : null}
 
-          <button className="auth-button" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Creating account..." : "Create account"}
-          </button>
+          <Button
+            className="auth-button"
+            type="submit"
+            isLoading={isSubmitting}
+            loadingText="Creating account..."
+          >
+            Create account
+          </Button>
         </form>
 
         <p className="auth-switch">
           Already have an account? <Link to="/login">Log in</Link>
         </p>
-      </div>
+      </Card>
     </section>
   );
 }

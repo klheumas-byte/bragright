@@ -9,13 +9,24 @@ export default function ErrorState({
   }
 
   return (
-    <div className={`match-feedback match-feedback-error feedback-state ${className}`.trim()}>
-      <p>{message}</p>
-      {onRetry ? (
-        <button type="button" className="inline-action-button" onClick={onRetry}>
-          {retryLabel}
-        </button>
-      ) : null}
-    </div>
+    <Alert
+      tone="error"
+      className={`match-feedback match-feedback-error feedback-state ${className}`.trim()}
+      action={
+        onRetry ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="inline-action-button"
+            onClick={onRetry}
+          >
+            {retryLabel}
+          </Button>
+        ) : null
+      }
+    >
+      {message}
+    </Alert>
   );
 }
+import { Alert, Button } from "./ui";

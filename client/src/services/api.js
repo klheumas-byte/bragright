@@ -1,30 +1,52 @@
-import { AUTH_STORAGE_KEY } from "../context/AuthContext";
+import {
+  clearAuthSession,
+  getAccessToken,
+  getSessionUser,
+  setAuthSession,
+} from "./authSession.js";
 
-export const AUTH_FAILURE_EVENT = "bragright:auth-failure";
-const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
+const API_BASE_URL = resolveApiBaseUrl(import.meta.env?.VITE_API_BASE_URL);
 const responseCache = new Map();
 const pendingGetRequests = new Map();
 const DEFAULT_GET_CACHE_TTL_MS = 15_000;
+const API_TIMEOUT_MS = parsePositiveInteger(
+  import.meta.env?.VITE_API_TIMEOUT_MS,
+  15_000
+);
+let refreshPromise = null;
 
 async function apiRequest(path, options = {}) {
   let response;
-  const currentUser = getStoredUser();
+  const {
+    skipAuthentication = false,
+    skipAuthRefresh = false,
+    ...fetchOptions
+  } = options;
   const requestUrl = buildApiUrl(path);
-  const isFormDataBody = typeof FormData !== "undefined" && options.body instanceof FormData;
+  const isFormDataBody =
+    typeof FormData !== "undefined" && fetchOptions.body instanceof FormData;
+  const accessToken = skipAuthentication ? null : getAccessToken();
   const requestHeaders = {
     ...(isFormDataBody ? {} : { "Content-Type": "application/json" }),
-    ...(currentUser?.id ? { "X-User-Id": currentUser.id } : {}),
-    ...(options.headers || {}),
+    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    ...(fetchOptions.headers || {}),
   };
 
   try {
-    response = await fetch(requestUrl, {
+    response = await fetchWithTimeout(requestUrl, {
+      ...fetchOptions,
       headers: requestHeaders,
-      ...options,
+      credentials: "include",
     });
   } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("The API request timed out. Please try again.");
+    }
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      throw new Error("You appear to be offline. Reconnect and try again.");
+    }
     throw new Error(
-      "Could not reach the backend API. Check the backend server and VITE_API_BASE_URL."
+      "The network connection was interrupted. Please try again."
     );
   }
 
@@ -34,9 +56,34 @@ async function apiRequest(path, options = {}) {
   if (!response.ok) {
     const error = createApiError(
       response.status,
-      data?.message || getDefaultApiErrorMessage(response.status, requestUrl)
+      data?.error?.message ||
+        data?.message ||
+        getDefaultApiErrorMessage(response.status, requestUrl)
     );
-    handleAuthFailure(error.status);
+    error.code = data?.error?.code || null;
+    error.requestId =
+      data?.request_id || response.headers.get("X-Request-ID") || null;
+    error.retryAfter = Number.parseInt(
+      response.headers.get("Retry-After") || "0",
+      10
+    );
+
+    if (response.status === 401 && !skipAuthRefresh) {
+      try {
+        await refreshAuthentication();
+        return await apiRequest(path, {
+          ...options,
+          skipAuthRefresh: true,
+        });
+      } catch (refreshError) {
+        handleAuthFailure(refreshError?.status || 401);
+        throw refreshError;
+      }
+    }
+
+    if (response.status === 423 && !skipAuthentication) {
+      handleAuthFailure(response.status);
+    }
     throw error;
   }
 
@@ -45,6 +92,44 @@ async function apiRequest(path, options = {}) {
   }
 
   return data;
+}
+
+function establishSessionFromResponse(data) {
+  if (!data?.access_token || !data?.user) {
+    throw createApiError(500, "The backend did not return a complete authenticated session.");
+  }
+
+  setAuthSession({
+    accessToken: data.access_token,
+    user: data.user,
+  });
+  return data;
+}
+
+async function refreshAuthentication() {
+  if (refreshPromise) {
+    return refreshPromise;
+  }
+
+  const currentRefreshPromise = apiRequest("/auth/refresh", {
+    method: "POST",
+    skipAuthentication: true,
+    skipAuthRefresh: true,
+  })
+    .then(establishSessionFromResponse)
+    .catch((error) => {
+      clearAuthSession();
+      clearApiCache();
+      throw error;
+    })
+    .finally(() => {
+      if (refreshPromise === currentRefreshPromise) {
+        refreshPromise = null;
+      }
+    });
+
+  refreshPromise = currentRefreshPromise;
+  return currentRefreshPromise;
 }
 
 async function cachedApiRequest(path, options = {}) {
@@ -96,34 +181,19 @@ async function apiRequestWithFallback(primaryPath, primaryOptions, fallbackReque
 
 function generateTemporaryPassword(length = 12) {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const randomValues = new Uint32Array(length);
+  globalThis.crypto.getRandomValues(randomValues);
   let password = "";
 
   for (let index = 0; index < length; index += 1) {
-    password += alphabet[Math.floor(Math.random() * alphabet.length)];
+    password += alphabet[randomValues[index] % alphabet.length];
   }
 
   return password;
 }
 
-function getStoredUser() {
-  let storedUser = null;
-
-  try {
-    storedUser = localStorage.getItem(AUTH_STORAGE_KEY);
-  } catch (error) {
-    return null;
-  }
-
-  if (!storedUser) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(storedUser);
-  } catch (error) {
-    safelyRemoveStoredUser();
-    return null;
-  }
+function getCurrentSessionUser() {
+  return getSessionUser();
 }
 
 function resolveApiBaseUrl(rawBaseUrl) {
@@ -153,6 +223,33 @@ function buildApiUrl(path) {
   return `${API_BASE_URL}${normalizedPath}`;
 }
 
+function parsePositiveInteger(rawValue, fallback) {
+  const parsedValue = Number.parseInt(rawValue, 10);
+  return Number.isFinite(parsedValue) && parsedValue > 0
+    ? parsedValue
+    : fallback;
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const upstreamSignal = options.signal;
+  const abortFromUpstream = () => controller.abort();
+  if (upstreamSignal) {
+    if (upstreamSignal.aborted) {
+      controller.abort();
+    } else {
+      upstreamSignal.addEventListener("abort", abortFromUpstream, { once: true });
+    }
+  }
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    return await fetch(url, {...options, signal: controller.signal});
+  } finally {
+    clearTimeout(timeoutId);
+    upstreamSignal?.removeEventListener("abort", abortFromUpstream);
+  }
+}
+
 function buildApiAssetUrl(path) {
   const safePath = String(path || "").trim();
 
@@ -177,15 +274,19 @@ function buildApiAssetUrl(path) {
 }
 
 function getDefaultApiErrorMessage(status, requestUrl) {
-  if (status === 404) {
-    return `The backend route for ${requestUrl} was not found. Check the API base URL and Flask route registration.`;
-  }
-
-  if (status === 401) {
-    return "Your session is no longer valid. Please log in again.";
-  }
-
-  return `The API request failed with status ${status}. Check the backend deployment and API base URL for ${requestUrl}.`;
+  const messages = {
+    401: "Your session is no longer valid. Please log in again.",
+    403: "You do not have permission to perform this action.",
+    404: "The requested service route was not found.",
+    409: "This action conflicts with a newer change. Refresh and try again.",
+    422: "Some submitted information is invalid. Review it and try again.",
+    429: "Too many requests. Please wait and try again.",
+    500: "The service hit an unexpected error. Please try again.",
+  };
+  return (
+    messages[status] ||
+    `The service request failed with status ${status}. Please try again.`
+  );
 }
 
 function shouldRetryWithFallback(error) {
@@ -211,12 +312,6 @@ function normalizeLegacyProfileMatch(match, currentUserId) {
   return normalizeMatchRecord(match, currentUserId);
 }
 
-function formatLegacyMatchStatus(status) {
-  return String(status || "unknown")
-    .replace("_", " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
 function normalizeMatchRecord(match, currentUserId) {
   const playerOneId = match?.player_one_id || match?.submitted_by || "";
   const playerTwoId = match?.player_two_id || match?.opponent_id || "";
@@ -230,22 +325,18 @@ function normalizeMatchRecord(match, currentUserId) {
   const opponentScore = isPlayerOne ? playerTwoScore : isPlayerTwo ? playerOneScore : playerTwoScore;
   const opponentId = isPlayerOne ? playerTwoId : playerOneId;
   const opponentUsername = isPlayerOne ? playerTwoName : playerOneName;
-  const status = match?.status === "scheduled" ? "match_requested" : match?.status || "pending_result";
-  const winnerId = match?.winner_id || null;
-  const isConfirmed = status === "confirmed";
-
-  let result = "pending";
-  let resultLabel = "-";
-  if (isConfirmed && winnerId && winnerId === currentUserId) {
-    result = "win";
-    resultLabel = "W";
-  } else if (isConfirmed && winnerId && winnerId !== currentUserId) {
-    result = "loss";
-    resultLabel = "L";
-  } else if (isConfirmed && currentUserScore != null && opponentScore != null && currentUserScore === opponentScore) {
-    result = "draw";
-    resultLabel = "D";
-  }
+  const playerOneProfile = match?.player_one || {};
+  const playerTwoProfile = match?.player_two || {};
+  const opponentProfile = isPlayerOne
+    ? playerTwoProfile
+    : isPlayerTwo
+      ? playerOneProfile
+      : match?.opponent || {};
+  const status = match?.status || "unknown";
+  const result = match?.result || "pending";
+  const resultLabel =
+    match?.result_label ||
+    ({ win: "W", loss: "L", draw: "D" }[result] || "-");
 
   return {
     ...match,
@@ -253,6 +344,20 @@ function normalizeMatchRecord(match, currentUserId) {
     opponent: {
       id: opponentId || "",
       username: opponentUsername || "Unknown opponent",
+      profile_image:
+        match?.opponent?.profile_image ||
+        opponentProfile?.profile_image ||
+        "",
+    },
+    player_one: {
+      id: playerOneId,
+      username: playerOneName,
+      profile_image: playerOneProfile?.profile_image || "",
+    },
+    player_two: {
+      id: playerTwoId,
+      username: playerTwoName,
+      profile_image: playerTwoProfile?.profile_image || "",
     },
     player_one_id: playerOneId,
     player_two_id: playerTwoId,
@@ -267,7 +372,7 @@ function normalizeMatchRecord(match, currentUserId) {
         ? "No result submitted"
         : `${currentUserScore ?? "-"} - ${opponentScore ?? "-"}`,
     status,
-    display_status: match?.display_status || formatLegacyMatchStatus(status),
+    display_status: match?.display_status || "Status unavailable",
     result,
     result_label: resultLabel,
     created_at: match?.created_at || null,
@@ -293,7 +398,7 @@ function parseJsonResponse(responseText, contentType = "", requestUrl = "") {
     if (likelyHtmlResponse) {
       throw createApiError(
         500,
-        `The API request for ${requestUrl} returned HTML instead of JSON. Check the Render API host and VITE_API_BASE_URL.`
+        "The service returned an unexpected response. Please try again."
       );
     }
 
@@ -308,27 +413,17 @@ function createApiError(status, message) {
 }
 
 function handleAuthFailure(status) {
-  if (status !== 401) {
+  if (status !== 401 && status !== 423) {
     return;
   }
 
   clearApiCache();
-  safelyRemoveStoredUser();
-  window.dispatchEvent(new Event(AUTH_FAILURE_EVENT));
+  clearAuthSession();
 }
 
 function clearApiCache() {
   responseCache.clear();
   pendingGetRequests.clear();
-}
-
-function safelyRemoveStoredUser() {
-  try {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-  } catch (error) {
-    return null;
-  }
-  return null;
 }
 
 async function apiMutation(path, options) {
@@ -348,14 +443,18 @@ export function registerUser(credentials) {
   return apiMutation("/auth/register", {
     method: "POST",
     body: JSON.stringify(credentials),
-  });
+    skipAuthentication: true,
+    skipAuthRefresh: true,
+  }).then(establishSessionFromResponse);
 }
 
 export function loginUser(credentials) {
   return apiMutation("/auth/login", {
     method: "POST",
     body: JSON.stringify(credentials),
-  });
+    skipAuthentication: true,
+    skipAuthRefresh: true,
+  }).then(establishSessionFromResponse);
 }
 
 export function getCurrentUser(options = {}) {
@@ -369,7 +468,15 @@ export function getCurrentUser(options = {}) {
 export function logoutUser() {
   return apiMutation("/auth/logout", {
     method: "POST",
+    skipAuthRefresh: true,
+  }).finally(() => {
+    clearAuthSession();
+    clearApiCache();
   });
+}
+
+export function restoreSession() {
+  return refreshAuthentication();
 }
 
 export function getMyProfile(options = {}) {
@@ -421,18 +528,22 @@ export function getMyProfile(options = {}) {
 }
 
 export function getMyProfileMatches(options = {}) {
+  const page = parsePositiveInteger(options.page, 1);
+  const limit = Math.min(parsePositiveInteger(options.limit, 25), 100);
+  const cacheKey = `my-profile-matches:${page}:${limit}`;
+
   if (!options.forceRefresh) {
-    const cachedEntry = responseCache.get("my-profile-matches");
+    const cachedEntry = responseCache.get(cacheKey);
     if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
       return Promise.resolve(cachedEntry.data);
     }
   }
 
   return apiRequestWithFallback(
-    "/profile/me/matches",
+    `/profile/me/matches?page=${page}&limit=${limit}`,
     {},
     async () => {
-      const currentUser = getStoredUser() || {};
+      const currentUser = getCurrentSessionUser() || {};
       const response = await getMyMatches(options);
       const matches = Array.isArray(response?.data?.matches) ? response.data.matches : [];
 
@@ -446,7 +557,7 @@ export function getMyProfileMatches(options = {}) {
     }
   ).then((data) => {
     if (!options.forceRefresh) {
-      responseCache.set("my-profile-matches", {
+      responseCache.set(cacheKey, {
         data,
         expiresAt: Date.now() + 20_000,
       });
@@ -455,33 +566,67 @@ export function getMyProfileMatches(options = {}) {
   });
 }
 
-export function updateMyProfile({ userId, username, image } = {}) {
+export function updateMyProfile({ username, image } = {}) {
   return apiMutation("/profile/update", {
     method: "POST",
     body: JSON.stringify({
-      user_id: userId,
       username,
       image,
     }),
   });
 }
 
-export function getPlayers() {
-  return cachedApiRequest("/players", {
-    cacheKey: "players",
+export function getPlayers(options = {}) {
+  const page = parsePositiveInteger(options.page, 1);
+  const limit = Math.min(parsePositiveInteger(options.limit, 100), 200);
+  const search = String(options.search || "").trim().replace(/\s+/g, " ").slice(0, 64);
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
+  if (search) {
+    params.set("search", search);
+  }
+  return cachedApiRequest(`/players?${params.toString()}`, {
+    cacheKey: `players:${page}:${limit}:${search.toLocaleLowerCase()}`,
     ttlMs: 300_000,
+    forceRefresh: options.forceRefresh,
   });
 }
 
-export function getLeaderboard() {
-  return cachedApiRequest("/leaderboard", {
-    cacheKey: "leaderboard",
+export function getLeaderboard(options = {}) {
+  const page = parsePositiveInteger(options.page, 1);
+  const limit = Math.min(parsePositiveInteger(options.limit, 100), 200);
+  const search = String(options.search || "").trim().replace(/\s+/g, " ").slice(0, 64);
+  const playerId = String(options.playerId || "").trim();
+  const params = new URLSearchParams();
+  if (options.page || options.limit || search || playerId) {
+    params.set("page", String(page));
+    params.set("limit", String(limit));
+  }
+  if (search) {
+    params.set("search", search);
+  }
+  if (playerId) {
+    params.set("player_id", playerId);
+  }
+  const queryString = params.toString();
+  const path = `/leaderboard${queryString ? `?${queryString}` : ""}`;
+  const cacheKey = `leaderboard:${page}:${limit}:${search.toLocaleLowerCase()}:${playerId}`;
+
+  return cachedApiRequest(path, {
+    cacheKey,
     ttlMs: 30_000,
+    forceRefresh: options.forceRefresh,
   });
 }
 
-export function getPublicPlayerProfile(playerId) {
-  return apiRequest(`/players/${playerId}`);
+export function getPublicPlayerProfile(playerId, options = {}) {
+  return cachedApiRequest(`/players/${playerId}`, {
+    cacheKey: `public-player-profile:${playerId}`,
+    ttlMs: 30_000,
+    forceRefresh: options.forceRefresh,
+  });
 }
 
 export function getHeadToHead(playerAId, playerBId) {
@@ -543,10 +688,20 @@ export function getAdminUsers(filters = {}) {
 }
 
 export function createAdminUser(userPayload) {
+  const temporaryPassword = generateTemporaryPassword();
   return apiMutation("/admin/users", {
     method: "POST",
-    body: JSON.stringify(userPayload),
-  });
+    body: JSON.stringify({
+      ...userPayload,
+      temporary_password: temporaryPassword,
+    }),
+  }).then((data) => ({
+    ...data,
+    data: {
+      ...(data?.data || {}),
+      temporary_password: temporaryPassword,
+    },
+  }));
 }
 
 export function updateAdminUserRole(userId, role) {
@@ -566,30 +721,18 @@ export function updateAdminUserStatus(userId, status) {
 export function resetAdminUserPassword(userId) {
   const fallbackTemporaryPassword = generateTemporaryPassword();
 
-  return apiRequestWithFallback(
-    `/admin/users/${userId}/reset-password`,
-    {
-      method: "POST",
-      body: JSON.stringify({}),
+  return apiMutation(`/admin/users/${userId}/password`, {
+    method: "PATCH",
+    body: JSON.stringify({ new_password: fallbackTemporaryPassword }),
+  }).then((data) => ({
+    ...data,
+    message: data?.message || "Temporary password generated successfully.",
+    data: {
+      ...(data?.data || {}),
+      user_id: userId,
+      temporary_password: fallbackTemporaryPassword,
     },
-    () =>
-      apiMutation(`/admin/users/${userId}/password`, {
-        method: "PATCH",
-        body: JSON.stringify({ new_password: fallbackTemporaryPassword }),
-      })
-        .then((data) => ({
-          ...data,
-          message: data?.message || "Temporary password generated successfully.",
-          data: {
-            ...(data?.data || {}),
-            user_id: userId,
-            temporary_password: fallbackTemporaryPassword,
-          },
-        }))
-  ).then((data) => {
-    clearApiCache();
-    return data;
-  });
+  }));
 }
 
 export function getAdminSettings() {
@@ -630,8 +773,12 @@ export function getAdminLogins(filters = {}) {
 }
 
 export function getMyActivity(options = {}) {
-  return cachedApiRequest("/activity/me?limit=20", {
-    cacheKey: "my-activity:20",
+  const page = parsePositiveInteger(options.page, 1);
+  const limit = Math.min(parsePositiveInteger(options.limit, 20), 100);
+  const category = String(options.category || "all").trim().toLowerCase();
+
+  return cachedApiRequest(`/activity/me?page=${page}&limit=${limit}&category=${encodeURIComponent(category)}`, {
+    cacheKey: `my-activity:${page}:${limit}:${category}`,
     ttlMs: 20_000,
     forceRefresh: options.forceRefresh,
   });
@@ -712,38 +859,54 @@ export function uploadMatchProof(file) {
 }
 
 export function getMyMatches(options = {}) {
-  const limit = options.limit ?? 200;
-  const path = `/matches/my?limit=${limit}`;
+  const page = parsePositiveInteger(options.page, 1);
+  const limit = Math.min(parsePositiveInteger(options.limit, 20), 100);
+  const view = String(options.view || "all").trim().toLowerCase();
+  const path = `/matches/my?page=${page}&limit=${limit}&view=${encodeURIComponent(view)}`;
   return cachedApiRequest(path, {
-    cacheKey: `my-matches:${limit}`,
-    ttlMs: 15_000,
+    cacheKey: `my-matches:${page}:${limit}:${view}`,
+    ttlMs: 5_000,
     forceRefresh: options.forceRefresh,
   }).then((response) => ({
     ...response,
     data: {
       ...(response?.data || {}),
       requested: Array.isArray(response?.data?.requested)
-        ? response.data.requested.map((match) => normalizeMatchRecord(match, getStoredUser()?.id))
+        ? response.data.requested.map((match) => normalizeMatchRecord(match, getCurrentSessionUser()?.id))
         : [],
       matches: Array.isArray(response?.data?.matches)
-        ? response.data.matches.map((match) => normalizeMatchRecord(match, getStoredUser()?.id))
+        ? response.data.matches.map((match) => normalizeMatchRecord(match, getCurrentSessionUser()?.id))
         : [],
       waiting_for_result: Array.isArray(response?.data?.waiting_for_result)
-        ? response.data.waiting_for_result.map((match) => normalizeMatchRecord(match, getStoredUser()?.id))
+        ? response.data.waiting_for_result.map((match) => normalizeMatchRecord(match, getCurrentSessionUser()?.id))
         : [],
       awaiting_confirmation: Array.isArray(response?.data?.awaiting_confirmation)
-        ? response.data.awaiting_confirmation.map((match) => normalizeMatchRecord(match, getStoredUser()?.id))
+        ? response.data.awaiting_confirmation.map((match) => normalizeMatchRecord(match, getCurrentSessionUser()?.id))
         : [],
       confirmed: Array.isArray(response?.data?.confirmed)
-        ? response.data.confirmed.map((match) => normalizeMatchRecord(match, getStoredUser()?.id))
+        ? response.data.confirmed.map((match) => normalizeMatchRecord(match, getCurrentSessionUser()?.id))
         : [],
       disputed: Array.isArray(response?.data?.disputed)
-        ? response.data.disputed.map((match) => normalizeMatchRecord(match, getStoredUser()?.id))
+        ? response.data.disputed.map((match) => normalizeMatchRecord(match, getCurrentSessionUser()?.id))
         : [],
       closed: Array.isArray(response?.data?.closed)
-        ? response.data.closed.map((match) => normalizeMatchRecord(match, getStoredUser()?.id))
+        ? response.data.closed.map((match) => normalizeMatchRecord(match, getCurrentSessionUser()?.id))
         : [],
     },
+  }));
+}
+
+export function getMatchDetail(matchId, options = {}) {
+  return cachedApiRequest(`/matches/${matchId}`, {
+    cacheKey: `match-detail:${matchId}`,
+    ttlMs: 5_000,
+    forceRefresh: options.forceRefresh,
+  }).then((response) => ({
+    ...response,
+    data: normalizeMatchRecord(
+      response?.data || response?.match,
+      getCurrentSessionUser()?.id
+    ),
   }));
 }
 
@@ -768,6 +931,31 @@ export function cancelMatch(matchId) {
 
 export function getApiAssetUrl(path) {
   return buildApiAssetUrl(path);
+}
+
+export async function fetchProtectedAsset(path, { skipAuthRefresh = false } = {}) {
+  const accessToken = getAccessToken();
+  const response = await fetchWithTimeout(buildApiAssetUrl(path), {
+    method: "GET",
+    credentials: "include",
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+  });
+
+  if (response.status === 401 && !skipAuthRefresh) {
+    await refreshAuthentication();
+    return fetchProtectedAsset(path, { skipAuthRefresh: true });
+  }
+  if (!response.ok) {
+    let message = "Could not load the protected asset.";
+    try {
+      const payload = await response.json();
+      message = payload?.error?.message || payload?.message || message;
+    } catch (error) {
+      // Asset errors are allowed to fall back to the safe generic message.
+    }
+    throw createApiError(response.status, message);
+  }
+  return response.blob();
 }
 
 export function clearClientApiCache() {

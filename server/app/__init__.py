@@ -1,11 +1,17 @@
-from datetime import datetime, timezone
+import re
+import time
+import gzip
+from uuid import uuid4
 
-from flask import Flask, jsonify
-from pymongo.errors import PyMongoError
+from flask import Flask, g, request
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import HTTPException
 
 from .config import Config
-from .db import describe_mongo_error, get_db, get_db_debug_snapshot, get_users_collection, init_db
+from .db import (
+    ensure_database_indexes,
+    init_db,
+)
 from .extensions import init_extensions
 from .routes.activity import activity_bp
 from .routes.auth import auth_bp
@@ -16,17 +22,39 @@ from .routes.health import health_bp
 from .routes.matches import matches_bp, upload_proof
 from .routes.players import players_bp
 from .routes.profile import profile_bp
+from .services.api_security import (
+    ErrorCode,
+    api_error,
+    normalize_error_payload,
+    sanitize_response_payload,
+)
+from .services.logging_config import configure_logging
+from .services.rate_limiter import FixedWindowRateLimiter
+
+
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 
 
 def _validate_runtime_config(app):
-    required_settings = ("MONGO_URI", "MONGO_DB_NAME")
+    is_production = bool(
+        app.config.get("IS_PRODUCTION")
+        or str(app.config.get("APP_ENV", "")).lower() == "production"
+    )
+    required_settings = ("MONGODB_URI", "MONGODB_DATABASE")
+    if not app.config.get("MONGODB_URI") and app.config.get("MONGO_URI"):
+        app.config["MONGODB_URI"] = app.config["MONGO_URI"]
+    if not app.config.get("MONGODB_DATABASE") and app.config.get("MONGO_DB_NAME"):
+        app.config["MONGODB_DATABASE"] = app.config["MONGO_DB_NAME"]
     missing_settings = [name for name in required_settings if not app.config.get(name)]
 
-    if not app.config.get("DEBUG") and not app.config.get("SECRET_KEY"):
+    if is_production and not app.config.get("SECRET_KEY"):
         missing_settings.append("SECRET_KEY")
 
-    if not app.config.get("DEBUG") and not app.config.get("FRONTEND_ORIGIN"):
-        missing_settings.append("FRONTEND_ORIGIN")
+    if is_production and not app.config.get("ALLOWED_ORIGINS"):
+        missing_settings.append("ALLOWED_ORIGINS")
+
+    if is_production and not app.config.get("JWT_ACCESS_SECRET"):
+        missing_settings.append("JWT_ACCESS_SECRET")
 
     if missing_settings:
         raise RuntimeError(
@@ -34,122 +62,311 @@ def _validate_runtime_config(app):
             + ", ".join(sorted(set(missing_settings)))
         )
 
+    access_secret = str(app.config.get("JWT_ACCESS_SECRET") or "")
+    flask_secret = str(app.config.get("SECRET_KEY") or "")
+    unsafe_secret_markers = ("replace-with", "change-me", "your-secret", "placeholder")
+    if len(access_secret) < 32 or (
+        is_production
+        and any(marker in access_secret.lower() for marker in unsafe_secret_markers)
+    ):
+        raise RuntimeError(
+            "JWT_ACCESS_SECRET must be a non-placeholder secret of at least 32 characters."
+        )
+    if is_production and (
+        len(flask_secret) < 32
+        or any(marker in flask_secret.lower() for marker in unsafe_secret_markers)
+    ):
+        raise RuntimeError(
+            "SECRET_KEY must be a non-placeholder secret of at least 32 characters."
+        )
+
+    same_site = str(app.config.get("AUTH_COOKIE_SAMESITE") or "").strip().title()
+    if same_site not in {"Lax", "Strict", "None"}:
+        raise RuntimeError("AUTH_COOKIE_SAMESITE must be Lax, Strict, or None.")
+    app.config["AUTH_COOKIE_SAMESITE"] = same_site
+
+    if same_site == "None" and not app.config.get("AUTH_COOKIE_SECURE"):
+        raise RuntimeError("AUTH_COOKIE_SECURE must be true when AUTH_COOKIE_SAMESITE=None.")
+
+    allowed_origins = app.config.get("CORS_ORIGINS") or []
+    if "*" in allowed_origins:
+        raise RuntimeError("Credentialed CORS cannot use a wildcard frontend origin.")
+    if app.config.get("UPLOAD_STORAGE_PROVIDER", "local") not in {"local"}:
+        raise RuntimeError(
+            "UPLOAD_STORAGE_PROVIDER is not supported by the configured application."
+        )
+
 
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
     _validate_runtime_config(app)
+    configure_logging(app)
+
+    if app.config.get("TRUST_PROXY"):
+        app.wsgi_app = ProxyFix(
+            app.wsgi_app,
+            x_for=1,
+            x_proto=1,
+            x_host=1,
+            x_port=1,
+        )
+
+    if app.config.get("INIT_DB_INDEXES_AT_STARTUP", False):
+        init_db(config=app.config, logger=app.logger)
+        ensure_database_indexes(config=app.config, logger=app.logger)
 
     init_extensions(app)
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
     app.register_blueprint(activity_bp, url_prefix="/api/activity")
-    app.register_blueprint(health_bp, url_prefix="/api")
+    app.register_blueprint(health_bp)
     app.register_blueprint(dashboard_bp, url_prefix="/api/dashboard")
     app.register_blueprint(matches_bp, url_prefix="/api/matches")
     app.register_blueprint(players_bp, url_prefix="/api/players")
     app.register_blueprint(profile_bp, url_prefix="/api/profile")
     app.register_blueprint(competitive_bp, url_prefix="/api")
     app.add_url_rule("/api/upload", view_func=upload_proof, methods=["POST"], endpoint="upload_proof_alias")
+    app.extensions["rate_limiter"] = FixedWindowRateLimiter()
 
-    if app.config.get("DEBUG"):
-        app.logger.info("MongoDB debug snapshot: %s", get_db_debug_snapshot(app.config))
+    rate_limited_endpoints = {
+        "auth.register": ("auth", "RATE_LIMIT_AUTH"),
+        "auth.login": ("auth", "RATE_LIMIT_AUTH"),
+        "admin.reset_admin_user_password": (
+            "admin_password_reset",
+            "RATE_LIMIT_ADMIN_RESET",
+        ),
+        "matches.upload_proof": ("upload", "RATE_LIMIT_UPLOAD"),
+        "upload_proof_alias": ("upload", "RATE_LIMIT_UPLOAD"),
+        "matches.schedule_match": (
+            "match_mutation",
+            "RATE_LIMIT_MATCH_MUTATION",
+        ),
+        "matches.submit_match_result": (
+            "match_mutation",
+            "RATE_LIMIT_MATCH_MUTATION",
+        ),
+        "matches.dispute_match": (
+            "match_mutation",
+            "RATE_LIMIT_MATCH_MUTATION",
+        ),
+    }
 
-    @app.get("/api")
-    def api_index():
-        return jsonify(
-            {
-                "success": True,
-                "message": "BragRight API is running.",
-                "routes": {
-                    "health": "/api/health",
-                    "test_db": "/api/test-db",
-                    "register": "/api/auth/register",
-                    "login": "/api/auth/login",
-                    "me": "/api/auth/me",
-                    "logout": "/api/auth/logout",
-                    "my_activity": "/api/activity/me",
-                    "admin_summary": "/api/admin/summary",
-                    "admin_dashboard_summary": "/api/admin/dashboard/summary",
-                    "admin_profile_me": "/api/admin/profile/me",
-                    "admin_users": "/api/admin/users",
-                    "admin_reset_password": "/api/admin/users/<id>/reset-password",
-                    "admin_settings": "/api/admin/settings",
-                    "admin_activity": "/api/admin/activity",
-                    "admin_logins": "/api/admin/logins",
-                    "admin_disputes": "/api/admin/disputes",
-                    "admin_match_detail": "/api/admin/matches/<id>",
-                    "profile_me": "/api/profile/me",
-                    "profile_update": "/api/profile/update",
-                    "profile_me_matches": "/api/profile/me/matches",
-                    "players": "/api/players",
-                    "leaderboard": "/api/leaderboard",
-                    "matches": "/api/matches",
-                    "upload": "/api/upload",
-                },
-            }
-        ), 200
+    query_parameter_allowlist = {
+        "competitive.get_leaderboard": {"page", "limit", "search", "player_id"},
+        "players.list_players": {"page", "limit", "search"},
+        "activity.get_my_activity": {"page", "limit", "category"},
+        "profile.get_my_profile_matches": {"page", "limit"},
+        "matches.get_my_matches": {"page", "limit", "view"},
+        "admin.get_admin_users": {"role", "status", "search", "page", "limit"},
+        "admin.get_admin_activity": {
+            "user",
+            "role",
+            "action_type",
+            "start_date",
+            "end_date",
+            "limit",
+            "page",
+        },
+        "admin.get_admin_logins": {
+            "user",
+            "role",
+            "start_date",
+            "end_date",
+            "limit",
+            "page",
+        },
+        "admin.get_admin_matches": {
+            "status",
+            "player",
+            "date_from",
+            "date_to",
+            "limit",
+            "page",
+        },
+        "admin.get_admin_disputes": {"page", "limit"},
+    }
 
-    @app.get("/api/test-db")
-    @app.get("/test-db")
-    def test_db():
-        try:
-            init_db(config=app.config, logger=app.logger, force_reconnect=True)
-            db = get_db(config=app.config, logger=app.logger)
-            db.command("ping")
-            users = get_users_collection(config=app.config, logger=app.logger)
-            users.estimated_document_count()
+    @app.before_request
+    def validate_query_parameters():
+        supplied_request_id = request.headers.get("X-Request-ID", "").strip()
+        g.request_id = (
+            supplied_request_id
+            if REQUEST_ID_PATTERN.fullmatch(supplied_request_id)
+            else uuid4().hex
+        )
+        g.request_started_at = time.perf_counter()
 
-            return jsonify(
-                {
-                    "success": True,
-                    "message": "MongoDB Atlas connection is working.",
-                    "details": {
-                        "database": db.name,
-                        "users_collection": users.name,
-                        "checked_at": datetime.now(timezone.utc).isoformat(),
+        rate_limit_config = rate_limited_endpoints.get(request.endpoint)
+        if rate_limit_config:
+            scope, setting_name = rate_limit_config
+            allowed, retry_after = app.extensions["rate_limiter"].check(
+                scope,
+                request.remote_addr or "unknown",
+                limit=int(app.config.get(setting_name, 10)),
+                window_seconds=int(
+                    app.config.get("RATE_LIMIT_WINDOW_SECONDS", 60)
+                ),
+            )
+            if not allowed:
+                app.logger.warning(
+                    "rate_limit_exceeded",
+                    extra={
+                        "request_id": g.request_id,
+                        "endpoint": request.endpoint,
+                        "rate_limit_scope": scope,
                     },
-                }
-            ), 200
-        except PyMongoError as error:
-            app.logger.exception("MongoDB test route failed")
-            return jsonify(
-                {
-                    "success": False,
-                    "message": describe_mongo_error(error),
-                    "debug": get_db_debug_snapshot(app.config) if app.config.get("DEBUG") else None,
-                }
-            ), 500
-        except RuntimeError as error:
-            app.logger.exception("MongoDB test route configuration failed")
-            return jsonify(
-                {
-                    "success": False,
-                    "message": str(error),
-                    "debug": get_db_debug_snapshot(app.config) if app.config.get("DEBUG") else None,
-                }
-            ), 500
-        except Exception:
-            app.logger.exception("Unexpected error in test-db route")
-            return jsonify({"success": False, "message": "Database test failed."}), 500
+                )
+                response, status = api_error(
+                    "Too many requests. Please wait before trying again.",
+                    429,
+                    ErrorCode.TOO_MANY_REQUESTS,
+                )
+                response.headers["Retry-After"] = str(retry_after)
+                return response, status
+
+        if request.is_json:
+            maximum_json_bytes = (
+                int(app.config.get("MAX_JSON_BODY_SIZE_KB", 256)) * 1024
+            )
+            if request.content_length and request.content_length > maximum_json_bytes:
+                return api_error(
+                    "The JSON request body is too large.",
+                    413,
+                    ErrorCode.PAYLOAD_TOO_LARGE,
+                )
+
+        allowed_parameters = query_parameter_allowlist.get(request.endpoint, set())
+        unexpected_parameters = sorted(set(request.args) - allowed_parameters)
+        if unexpected_parameters:
+            return api_error(
+                "The request contains unsupported query parameters.",
+                422,
+                ErrorCode.VALIDATION_ERROR,
+                details={"parameters": unexpected_parameters},
+            )
+
+    @app.after_request
+    def secure_api_response(response):
+        if response.is_json:
+            payload = response.get_json(silent=True)
+            if payload is not None:
+                if response.status_code >= 400:
+                    payload = normalize_error_payload(payload, response.status_code)
+                else:
+                    payload = sanitize_response_payload(payload)
+                response.set_data(app.json.dumps(payload))
+                response.content_type = "application/json"
+
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+        )
+        response.headers["Permissions-Policy"] = (
+            "camera=(), microphone=(), geolocation=()"
+        )
+        response.headers["X-Request-ID"] = getattr(g, "request_id", uuid4().hex)
+        if app.config.get("IS_PRODUCTION") or str(
+            app.config.get("APP_ENV", "")
+        ).lower() == "production":
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+        public_cache_endpoints = {
+            "competitive.get_leaderboard",
+            "competitive.get_public_player_profile",
+            "competitive.get_head_to_head",
+            "players.list_players",
+        }
+        if (
+            request.method == "GET"
+            and request.endpoint in public_cache_endpoints
+            and "Authorization" not in request.headers
+            and response.status_code == 200
+        ):
+            max_age = int(app.config.get("PUBLIC_CACHE_MAX_AGE_SECONDS", 15))
+            response.headers["Cache-Control"] = (
+                f"public, max-age={max_age}, stale-while-revalidate={max_age * 2}"
+            )
+        elif request.path.startswith("/api/") or request.path.startswith("/health"):
+            response.headers["Cache-Control"] = "no-store"
+
+        accepts_gzip = "gzip" in request.headers.get("Accept-Encoding", "").lower()
+        compression_minimum = int(
+            app.config.get("RESPONSE_COMPRESSION_MIN_BYTES", 1024)
+        )
+        if (
+            accepts_gzip
+            and response.status_code not in {204, 304}
+            and not response.direct_passthrough
+            and not response.headers.get("Content-Encoding")
+            and response.content_type.startswith("application/json")
+            and len(response.get_data()) >= compression_minimum
+        ):
+            response.set_data(gzip.compress(response.get_data(), compresslevel=5))
+            response.headers["Content-Encoding"] = "gzip"
+            response.headers["Vary"] = "Accept-Encoding"
+            response.headers["Content-Length"] = str(len(response.get_data()))
+        started_at = getattr(g, "request_started_at", None)
+        duration_ms = (
+            round((time.perf_counter() - started_at) * 1000, 2)
+            if started_at is not None
+            else None
+        )
+        is_slow_request = (
+            duration_ms is not None
+            and duration_ms
+            >= int(app.config.get("SLOW_REQUEST_THRESHOLD_MS", 750))
+        )
+        log_method = app.logger.warning if is_slow_request else app.logger.info
+        log_method(
+            "slow_request" if is_slow_request else "request_complete",
+            extra={
+                "request_id": response.headers["X-Request-ID"],
+                "method": request.method,
+                "path": request.path,
+                "status_code": response.status_code,
+                "duration_ms": duration_ms,
+                "content_length": response.calculate_content_length(),
+                "endpoint": request.endpoint,
+            },
+        )
+        return response
 
     @app.errorhandler(HTTPException)
     def handle_http_exception(error):
-        return jsonify(
-            {
-                "success": False,
-                "message": error.description,
-            }
-        ), error.code
+        code = None
+        if error.code == 404:
+            code = ErrorCode.NOT_FOUND
+        elif error.code == 413:
+            code = ErrorCode.PAYLOAD_TOO_LARGE
+        return api_error(
+            error.description,
+            error.code,
+            code,
+        )
 
     @app.errorhandler(Exception)
     def handle_unexpected_exception(error):
         app.logger.exception("Unhandled application error", exc_info=error)
-        return jsonify(
-            {
-                "success": False,
-                "message": "Internal server error.",
-            }
-        ), 500
+        error_tracker = app.extensions.get("error_tracker")
+        if callable(error_tracker):
+            try:
+                error_tracker(error, request_id=getattr(g, "request_id", None))
+            except Exception:
+                app.logger.exception("Error tracking hook failed")
+        return api_error(
+            "Internal server error.",
+            500,
+            ErrorCode.INTERNAL_ERROR,
+        )
 
+    app.logger.info(
+        "application_started",
+        extra={
+            "endpoint": "startup",
+        },
+    )
     return app

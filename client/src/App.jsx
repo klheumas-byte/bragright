@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
 import GlobalLoadingBar from "./components/GlobalLoadingBar";
 import ProtectedRoute from "./components/ProtectedRoute";
 import SectionLoader from "./components/SectionLoader";
@@ -18,6 +18,7 @@ const Leaderboard = lazy(() => import("./pages/Leaderboard"));
 const Login = lazy(() => import("./pages/Login"));
 const MyActivity = lazy(() => import("./pages/MyActivity"));
 const MyMatches = lazy(() => import("./pages/MyMatches"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 const Profile = lazy(() => import("./pages/Profile"));
 const PlayerProfile = lazy(() => import("./pages/PlayerProfile"));
 const Register = lazy(() => import("./pages/Register"));
@@ -33,7 +34,7 @@ export default function App() {
             <Route index element={<Home />} />
             <Route path="login" element={<Login />} />
             <Route path="register" element={<Register />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<NotFound />} />
           </Route>
           <Route
             path="/leaderboard"
@@ -155,7 +156,7 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
     </>

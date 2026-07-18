@@ -9,15 +9,28 @@ RECENT_MATCH_LIMIT = 5
 
 
 def build_leaderboard(users_collection, matches_collection):
-    users = list(users_collection.find({}, {"password_hash": 0}))
+    users = list(
+        users_collection.find(
+            {"role": "player", "status": {"$ne": "disabled"}},
+            {"username": 1, "profile_image": 1},
+        )
+    )
     confirmed_matches = list(
-        matches_collection.find({"status": "confirmed"}).sort("confirmed_at", DESCENDING)
+        matches_collection.find(
+            {"status": "confirmed"},
+            {
+                "submitted_by": 1,
+                "opponent_id": 1,
+                "winner_id": 1,
+            },
+        )
     )
 
     stats_by_player = {
         str(user["_id"]): {
             "id": str(user["_id"]),
             "username": user.get("username", "Player"),
+            "profile_image": user.get("profile_image") or "",
             "total_matches": 0,
             "wins": 0,
             "losses": 0,
@@ -41,19 +54,28 @@ def build_leaderboard(users_collection, matches_collection):
             {
                 **player,
                 "rank": index,
+                "win_rate": _calculate_win_rate(
+                    player["wins"],
+                    player["total_matches"],
+                ),
             }
         )
 
     return leaderboard
-
-
 def build_public_player_profile(player_id, users_collection, matches_collection):
     try:
         player_object_id = ObjectId(player_id)
     except InvalidId as error:
         raise ValueError("Player ID is invalid.") from error
 
-    player = users_collection.find_one({"_id": player_object_id}, {"password_hash": 0})
+    player = users_collection.find_one(
+        {
+            "_id": player_object_id,
+            "role": "player",
+            "status": {"$ne": "disabled"},
+        },
+        {"username": 1, "profile_image": 1, "created_at": 1, "status": 1},
+    )
     if not player:
         raise LookupError("Player was not found.")
 
@@ -92,6 +114,9 @@ def build_public_player_profile(player_id, users_collection, matches_collection)
     return {
         "id": player_summary["id"],
         "username": player_summary["username"],
+        "profile_image": player.get("profile_image") or "",
+        "created_at": player.get("created_at").isoformat() if player.get("created_at") else None,
+        "status": str(player.get("status") or "active").lower(),
         "total_matches": player_summary["total_matches"],
         "wins": player_summary["wins"],
         "losses": player_summary["losses"],
@@ -113,8 +138,22 @@ def build_head_to_head(player_a_id, player_b_id, users_collection, matches_colle
     except InvalidId as error:
         raise ValueError("One or both player IDs are invalid.") from error
 
-    player_a = users_collection.find_one({"_id": player_a_object_id}, {"password_hash": 0})
-    player_b = users_collection.find_one({"_id": player_b_object_id}, {"password_hash": 0})
+    public_player_query = {
+        "role": "player",
+        "status": {"$ne": "disabled"},
+    }
+    player_documents = list(
+        users_collection.find(
+            {
+                "_id": {"$in": [player_a_object_id, player_b_object_id]},
+                **public_player_query,
+            },
+            {"username": 1},
+        )
+    )
+    players_by_id = {str(player["_id"]): player for player in player_documents}
+    player_a = players_by_id.get(player_a_id)
+    player_b = players_by_id.get(player_b_id)
 
     if not player_a or not player_b:
         raise LookupError("One or both players were not found.")

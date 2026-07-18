@@ -1,9 +1,12 @@
-from flask import Blueprint, current_app, jsonify
+import re
+
+from flask import Blueprint, current_app, jsonify, request
 from pymongo import ASCENDING
 from pymongo.errors import PyMongoError
 
 from ..db import describe_mongo_error, get_db_debug_snapshot, get_users_collection
-from .auth import serialize_user
+from ..services.api_security import pagination_metadata, parse_bounded_int_query
+from ..services.dtos import player_public_dto
 
 
 players_bp = Blueprint("players", __name__)
@@ -13,8 +16,41 @@ players_bp = Blueprint("players", __name__)
 def list_players():
     try:
         users = get_users_collection(config=current_app.config, logger=current_app.logger)
-        player_documents = list(users.find({}, {"password_hash": 0}).sort("username", ASCENDING))
-        players = [serialize_user(player) for player in player_documents]
+        page, page_error = parse_bounded_int_query(
+            "page", default=1, maximum=100000
+        )
+        if page_error:
+            return page_error
+        limit, limit_error = parse_bounded_int_query(
+            "limit", default=100, maximum=200
+        )
+        if limit_error:
+            return limit_error
+        query = {"role": "player", "status": {"$ne": "disabled"}}
+        search = " ".join(str(request.args.get("search") or "").strip().split())
+        if len(search) > 64:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "Player search must be 64 characters or fewer.",
+                }
+            ), 422
+        if search:
+            query["username"] = {
+                "$regex": re.escape(search),
+                "$options": "i",
+            }
+        total = users.count_documents(query)
+        player_documents = list(
+            users.find(
+                query,
+                {"username": 1, "profile_image": 1},
+            )
+            .sort("username", ASCENDING)
+            .skip((page - 1) * limit)
+            .limit(limit)
+        )
+        players = [player_public_dto(player) for player in player_documents]
 
         return jsonify(
             {
@@ -23,6 +59,12 @@ def list_players():
                 "data": {
                     "players": players,
                     "count": len(players),
+                    "search": search,
+                    **pagination_metadata(
+                        page=page,
+                        limit=limit,
+                        total=total,
+                    ),
                 },
             }
         ), 200

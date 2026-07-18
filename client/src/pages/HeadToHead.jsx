@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import SectionSkeleton from "../components/SectionSkeleton";
+import { Button } from "../components/ui";
 import { useLoading } from "../context/LoadingContext";
 import { usePlayerDirectory } from "../context/PlayerDirectoryContext";
 import DashboardLayout from "../layouts/DashboardLayout";
@@ -120,7 +121,7 @@ export default function HeadToHead() {
   return (
     <DashboardLayout
       title="Head-to-Head"
-      description=""
+      description="Compare rivals and settle the matchup with real records."
     >
       <section className="feature-hero-card">
         <div>
@@ -177,9 +178,9 @@ export default function HeadToHead() {
             </select>
           </label>
 
-          <button type="submit" className="auth-button head-to-head-submit-button" disabled={isLoadingPlayers}>
+          <Button type="submit" className="auth-button head-to-head-submit-button" disabled={isLoadingPlayers}>
             View Rivalry
-          </button>
+          </Button>
         </form>
 
         {isLoadingPlayers ? <p className="match-helper-text">Loading available players...</p> : null}

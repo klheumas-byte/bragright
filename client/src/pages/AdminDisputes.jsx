@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import ButtonLoadingText from "../components/ButtonLoadingText";
 import ErrorState from "../components/ErrorState";
+import ProtectedProofImage from "../components/ProtectedProofImage";
 import SectionLoader from "../components/SectionLoader";
 import SuccessAlert from "../components/SuccessAlert";
+import { Badge, Button } from "../components/ui";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
-import { getAdminDispute, getAdminMatches, getApiAssetUrl, resolveAdminDispute } from "../services/api";
+import { getAdminDispute, getAdminMatches, resolveAdminDispute } from "../services/api";
+import { getMatchStatusPresentation } from "./matchPresentation";
 
 const resolutionActionOptions = [
   {
@@ -189,7 +191,7 @@ export default function AdminDisputes() {
   return (
     <DashboardLayout
       title="Admin Disputes"
-      description=""
+      description="Resolve contested results and protect the integrity of play."
     >
       <section className="feature-hero-card">
         <div>
@@ -248,9 +250,9 @@ export default function AdminDisputes() {
                     <p className="admin-dispute-list-title">
                       {match.players.submitted_by.username} vs {match.players.opponent.username}
                     </p>
-                    <span className={`match-status-badge ${match.status === "confirmed" ? "match-status-confirmed" : match.status === "rejected" ? "match-status-rejected" : "match-status-disputed"}`}>
-                      {formatStatusLabel(match.status)}
-                    </span>
+                    <Badge tone={getMatchStatusPresentation(match.status).tone}>
+                      {getMatchStatusPresentation(match.status).label}
+                    </Badge>
                   </div>
 
                   <div className="admin-dispute-list-metrics">
@@ -322,7 +324,7 @@ export default function AdminDisputes() {
                   <div className="admin-dispute-metadata">
                     <p className="match-card-meta">Created: {formatDate(selectedMatch.created_at)}</p>
                     <p className="match-card-meta">Disputed: {formatDate(selectedMatch.disputed_at)}</p>
-                    <p className="match-card-meta">Status: {formatStatusLabel(selectedMatch.status)}</p>
+                    <p className="match-card-meta">Status: {getMatchStatusPresentation(selectedMatch.status).label}</p>
                     <p className="match-card-meta">
                       Disputed by: {selectedMatch.players.disputed_by.username || selectedMatch.players.opponent.username}
                     </p>
@@ -342,10 +344,7 @@ export default function AdminDisputes() {
                     </p>
                   </div>
 
-                  <a className="match-proof-link" href={getApiAssetUrl(selectedMatch.proof_image_url)} target="_blank" rel="noreferrer">
-                    <img className="match-proof-image" src={getApiAssetUrl(selectedMatch.proof_image_url)} alt="Match proof" />
-                    <span className="inline-action-link">Open proof</span>
-                  </a>
+                  <ProtectedProofImage path={selectedMatch.proof_image_url} />
                 </div>
               ) : (
                 <div className="match-empty-state">
@@ -359,7 +358,9 @@ export default function AdminDisputes() {
                     <p className="match-score-label">Moderation controls</p>
                     <p className="admin-resolution-copy">{selectedActionConfig.helper}</p>
                   </div>
-                  <span className="match-status-badge match-status-disputed">Awaiting admin decision</span>
+                  <Badge tone={getMatchStatusPresentation("disputed").tone}>
+                    {getMatchStatusPresentation("disputed").label}
+                  </Badge>
                 </div>
 
                 <label className="form-field">
@@ -437,23 +438,23 @@ export default function AdminDisputes() {
                 ) : null}
 
                 <div className="admin-resolution-actions">
-                  <button type="submit" className="auth-button" disabled={isSubmitting}>
-                    <ButtonLoadingText
-                      isLoading={isSubmitting}
-                      loadingText="Saving..."
-                    >
-                      {`Submit ${selectedActionConfig.label.toLowerCase()}`}
-                    </ButtonLoadingText>
-                  </button>
+                  <Button
+                    type="submit"
+                    className="auth-button"
+                    isLoading={isSubmitting}
+                    loadingText="Saving..."
+                  >
+                    {`Submit ${selectedActionConfig.label.toLowerCase()}`}
+                  </Button>
 
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
                     className="inline-action-button"
                     disabled={isSubmitting}
                     onClick={() => loadDisputeDetail(selectedMatch.id)}
                   >
                     Reset form
-                  </button>
+                  </Button>
                 </div>
               </form>
             </div>
@@ -514,17 +515,6 @@ function formatDate(value) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
-}
-
-function formatStatusLabel(value) {
-  if (!value) {
-    return "Unknown";
-  }
-
-  return value
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function getWinnerLabel(match) {

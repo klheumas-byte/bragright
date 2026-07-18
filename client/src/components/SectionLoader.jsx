@@ -1,18 +1,26 @@
 import SectionSkeleton from "./SectionSkeleton";
+import { Card } from "./ui";
 
 export default function SectionLoader({
   lines = 4,
   message = "Loading...",
   compact = false,
   className = "dashboard-panel",
-  as: Component = "section",
+  as = "section",
 }) {
   return (
-    <Component className={className}>
+    <Card
+      as={as}
+      variant="loading"
+      className={className}
+      aria-busy="true"
+      aria-live="polite"
+      aria-label={message}
+    >
       <div className="section-loader">
         <SectionSkeleton lines={lines} compact={compact} />
         <p className="section-loader-copy">{message}</p>
       </div>
-    </Component>
+    </Card>
   );
 }

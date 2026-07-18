@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import ButtonLoadingText from "../components/ButtonLoadingText";
 import ErrorState from "../components/ErrorState";
 import SectionLoader from "../components/SectionLoader";
 import SuccessAlert from "../components/SuccessAlert";
+import { Button, Modal } from "../components/ui";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
 import {
@@ -234,7 +234,7 @@ export default function AdminUsers() {
   return (
     <DashboardLayout
       title="Admin Users"
-      description=""
+      description="Manage player access without losing sight of the competition."
     >
       <section className="feature-hero-card">
         <div>
@@ -290,11 +290,14 @@ export default function AdminUsers() {
             </select>
           </label>
 
-          <button className="auth-button" type="submit" disabled={isCreatingUser}>
-            <ButtonLoadingText isLoading={isCreatingUser} loadingText="Saving...">
-              Create User
-            </ButtonLoadingText>
-          </button>
+          <Button
+            className="auth-button"
+            type="submit"
+            isLoading={isCreatingUser}
+            loadingText="Saving..."
+          >
+            Create User
+          </Button>
         </form>
       </section>
 
@@ -398,33 +401,24 @@ export default function AdminUsers() {
                       </select>
                     </label>
 
-                    <button
-                      type="button"
+                    <Button
+                      variant="secondary"
                       className="inline-action-button"
-                      disabled={activeActionKey === `${user.id}:status`}
+                      isLoading={activeActionKey === `${user.id}:status`}
+                      loadingText="Saving..."
                       onClick={() => handleStatusToggle(user)}
                     >
-                      <ButtonLoadingText
-                        isLoading={activeActionKey === `${user.id}:status`}
-                        loadingText="Saving..."
-                      >
-                        {user.status === "active" ? "Disable" : "Enable"}
-                      </ButtonLoadingText>
-                    </button>
+                      {user.status === "active" ? "Disable" : "Enable"}
+                    </Button>
 
-                    <button
-                      type="button"
+                    <Button
                       className="auth-button admin-reset-password-button"
-                      disabled={activeActionKey === `${user.id}:password`}
+                      isLoading={activeActionKey === `${user.id}:password`}
+                      loadingText="Resetting..."
                       onClick={() => handlePasswordReset(user)}
                     >
-                      <ButtonLoadingText
-                        isLoading={activeActionKey === `${user.id}:password`}
-                        loadingText="Resetting..."
-                      >
-                        Reset password
-                      </ButtonLoadingText>
-                    </button>
+                      Reset password
+                    </Button>
                   </div>
                 </article>
               ))}
@@ -437,26 +431,30 @@ export default function AdminUsers() {
         )}
       </section>
 
-      {confirmationState.isOpen ? (
-        <div className="admin-modal-backdrop" role="presentation">
-          <div className="admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-confirmation-title">
-            <p className="panel-kicker">Confirm admin action</p>
-            <h2 id="admin-confirmation-title" className="panel-title">
-              {confirmationState.title}
-            </h2>
-            <p className="section-copy">{confirmationState.description}</p>
-
-            <div className="admin-modal-actions">
-              <button type="button" className="inline-action-button" onClick={() => setConfirmationState(initialConfirmationState)}>
-                Cancel
-              </button>
-              <button type="button" className="auth-button" onClick={handleConfirmAction}>
-                {confirmationState.confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <Modal
+        isOpen={confirmationState.isOpen}
+        onClose={() => setConfirmationState(initialConfirmationState)}
+        eyebrow="Confirm admin action"
+        title={confirmationState.title}
+        description={confirmationState.description}
+        titleClassName="panel-title"
+        descriptionClassName="section-copy"
+        className="admin-modal"
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              className="inline-action-button"
+              onClick={() => setConfirmationState(initialConfirmationState)}
+            >
+              Cancel
+            </Button>
+            <Button className="auth-button" onClick={handleConfirmAction}>
+              {confirmationState.confirmLabel}
+            </Button>
+          </>
+        }
+      />
     </DashboardLayout>
   );
 }

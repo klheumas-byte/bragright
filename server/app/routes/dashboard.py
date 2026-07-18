@@ -2,7 +2,7 @@ from flask import Blueprint, current_app, jsonify
 from pymongo.errors import PyMongoError
 
 from ..db import describe_mongo_error, get_db_debug_snapshot, get_matches_collection
-from .auth import get_current_user_from_request
+from .auth import get_current_user_from_request, require_player
 from ..services.admin_access import get_user_role
 from ..services.dashboard_service import (
     get_dashboard_actions,
@@ -16,6 +16,7 @@ dashboard_bp = Blueprint("dashboard", __name__)
 
 
 @dashboard_bp.get("/summary")
+@require_player
 def dashboard_summary():
     try:
         user, error_response, status_code = get_current_user_from_request()
@@ -66,11 +67,13 @@ def dashboard_summary():
 
 
 @dashboard_bp.get("/notifications")
+@require_player
 def dashboard_notifications():
     return _load_dashboard_notifications()
 
 
 @dashboard_bp.get("/actions")
+@require_player
 def dashboard_actions():
     try:
         user, error_response, status_code = get_current_user_from_request()
@@ -120,6 +123,7 @@ def dashboard_actions():
 
 
 @dashboard_bp.get("/action-center")
+@require_player
 def dashboard_action_center():
     try:
         user, error_response, status_code = get_current_user_from_request()

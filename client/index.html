@@ -3,6 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#081118" />
+    <script>
+      (() => {
+        const key = "bragright_theme_preference";
+        let preference = "system";
+        try {
+          const stored = localStorage.getItem(key);
+          if (["light", "dark", "system"].includes(stored)) preference = stored;
+        } catch {}
+        const theme = preference === "system"
+          ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+          : preference;
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.dataset.themePreference = preference;
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
     <title>BragRight</title>
   </head>
   <body>
@@ -10,4 +27,3 @@
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
-  

@@ -245,10 +245,26 @@ def calculate_winner_id(player_one_id, player_two_id, player_one_score, player_t
     return None
 
 
+def _parse_whole_score(value):
+    if isinstance(value, bool):
+        raise ValueError
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError
+        return int(value)
+
+    normalized_value = str(value or "").strip()
+    if not normalized_value or not normalized_value.lstrip("-").isdigit():
+        raise ValueError
+    return int(normalized_value)
+
+
 def validate_scores_and_winner(match_document, player_one_score, player_two_score, winner_id):
     try:
-        player_one_score = int(player_one_score)
-        player_two_score = int(player_two_score)
+        player_one_score = _parse_whole_score(player_one_score)
+        player_two_score = _parse_whole_score(player_two_score)
     except (TypeError, ValueError):
         return None, "Scores must be whole numbers."
 
@@ -284,8 +300,17 @@ def validate_scores_and_winner(match_document, player_one_score, player_two_scor
     }, None
 
 
-def serialize_match(match_document, current_user_id=None, *, include_actions=True):
+def serialize_match(
+    match_document,
+    current_user_id=None,
+    *,
+    include_actions=True,
+    player_profiles=None,
+):
     players = resolve_match_players(match_document)
+    player_profiles = player_profiles or {}
+    player_one_profile = player_profiles.get(players["player_one_id"], {})
+    player_two_profile = player_profiles.get(players["player_two_id"], {})
     participant_role = get_match_participant_role(match_document, current_user_id or "")
     user_is_player = participant_role in {"player_one", "player_two"}
     opponent_id = get_match_opponent_id(match_document, current_user_id or "")
@@ -345,6 +370,16 @@ def serialize_match(match_document, current_user_id=None, *, include_actions=Tru
         "player_two_id": players["player_two_id"],
         "player_one_name": players["player_one_name"],
         "player_two_name": players["player_two_name"],
+        "player_one": {
+            "id": players["player_one_id"],
+            "username": players["player_one_name"],
+            "profile_image": player_one_profile.get("profile_image") or "",
+        },
+        "player_two": {
+            "id": players["player_two_id"],
+            "username": players["player_two_name"],
+            "profile_image": player_two_profile.get("profile_image") or "",
+        },
         "created_by": match_document.get("created_by") or players["player_one_id"],
         "requested_to": get_match_requested_to(match_document) or players["player_two_id"],
         "result_submitted_by": match_document.get("result_submitted_by"),
@@ -375,6 +410,12 @@ def serialize_match(match_document, current_user_id=None, *, include_actions=Tru
         "opponent": {
             "id": opponent_id,
             "username": opponent_name,
+            "profile_image": (
+                player_two_profile.get("profile_image")
+                if player_is_one
+                else player_one_profile.get("profile_image")
+            )
+            or "",
         },
         "current_user_role": participant_role,
         "current_user_score": current_user_score,
@@ -397,7 +438,7 @@ def build_score_line(player_score, opponent_score):
     return f"{player_score if player_score is not None else '-'} - {opponent_score if opponent_score is not None else '-'}"
 
 
-def get_matches_for_user(user_id, matches_collection, *, limit=None):
+def get_matches_for_user(user_id, matches_collection, *, limit=None, skip=0):
     cursor = matches_collection.find(
         {
             "$or": [
@@ -411,6 +452,8 @@ def get_matches_for_user(user_id, matches_collection, *, limit=None):
 
     if limit:
         cursor = cursor.limit(limit)
+    if skip:
+        cursor = cursor.skip(skip)
 
     return list(cursor)
 
