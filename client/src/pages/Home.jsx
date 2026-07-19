@@ -1,43 +1,30 @@
 import { Link } from "react-router-dom";
 import SectionSkeleton from "../components/SectionSkeleton";
+import SidebarIcon from "../components/SidebarIcon";
 import { useAuth } from "../context/AuthContext";
 
-const featureCards = [
+const essentials = [
   {
-    title: "Schedule Matches",
-    description: "Create match requests, line up opponents, and keep every challenge organized in one place.",
+    icon: "matches",
+    title: "Challenge clearly",
+    description: "Schedule opponents and keep every match in one place.",
   },
   {
-    title: "Confirm Results",
-    description: "Submit outcomes quickly and let both players lock in the final result with confidence.",
+    icon: "check",
+    title: "Confirm confidently",
+    description: "Record outcomes through a transparent confirmation flow.",
   },
   {
-    title: "Resolve Disputes",
-    description: "Escalate contested results into a clear review flow instead of relying on hearsay or screenshots alone.",
-  },
-  {
-    title: "Track Performance",
-    description: "Watch your history grow across wins, losses, activity, and momentum over time.",
-  },
-  {
-    title: "Build Trusted Rankings",
-    description: "Turn verified match history into leaderboards players can respect and reference.",
+    icon: "leaderboard",
+    title: "Rank credibly",
+    description: "Build a competitive record grounded in confirmed results.",
   },
 ];
 
-const workflowSteps = [
-  "Create account",
-  "Schedule match",
-  "Play and submit result",
-  "Opponent confirms or disputes",
-  "Build history",
-];
-
-const trustPoints = [
-  "Admin moderation supports fair resolution when a result is challenged.",
-  "Dispute review creates an accountable process for contested match outcomes.",
-  "Activity logs help maintain a visible record of important competitive actions.",
-  "Structured result tracking keeps rankings grounded in confirmed history.",
+const matchFlow = [
+  { icon: "matches", label: "Challenge", detail: "Match requested" },
+  { icon: "submit", label: "Result", detail: "Score submitted" },
+  { icon: "check", label: "Record", detail: "Outcome confirmed" },
 ];
 
 export default function Home() {
@@ -47,11 +34,11 @@ export default function Home() {
   if (isInitializing) {
     return (
       <section className="landing-page">
-        <section className="landing-hero">
+        <section className="landing-hero" aria-label="Preparing BragRight">
           <div className="landing-hero-copy">
-            <p className="landing-eyebrow">Loading</p>
-            <h1 className="landing-title">Preparing BragRight</h1>
-            <SectionSkeleton lines={4} />
+            <p className="landing-eyebrow">BragRight</p>
+            <h1 className="landing-title">Preparing the arena.</h1>
+            <SectionSkeleton lines={3} />
           </div>
         </section>
       </section>
@@ -60,70 +47,82 @@ export default function Home() {
 
   return (
     <section className="landing-page">
-      <section className="landing-hero">
+      <section className="landing-hero" aria-labelledby="landing-title">
         <div className="landing-hero-copy">
-          <p className="landing-eyebrow">Competitive record, verified</p>
-          <h1 className="landing-title">Track Matches. Prove Results. Earn Bragging Rights.</h1>
+          <p className="landing-eyebrow">Competition, on record</p>
+          <h1 className="landing-title" id="landing-title">
+            Play it. <span>Prove it.</span> Own it.
+          </h1>
           <p className="landing-subtitle">
-            BragRight helps players schedule matches, submit results, confirm outcomes,
-            and build trusted competitive history.
+            Matches, results, and rankings—clear and credible.
           </p>
 
           <div className="landing-hero-actions">
-            <Link className="landing-button landing-button-primary" to="/register">
-              Get Started
+            <Link
+              className="landing-button landing-button-primary"
+              to={isAuthenticated ? dashboardPath : "/register"}
+            >
+              {isAuthenticated ? "Enter Dashboard" : "Start Competing"}
             </Link>
-            <Link className="landing-button landing-button-secondary" to="/login">
-              Log In
-            </Link>
+            {!isAuthenticated ? (
+              <Link className="landing-button landing-button-secondary" to="/login">
+                Sign In
+              </Link>
+            ) : null}
           </div>
 
-          <div className="landing-proof-row">
-            <span>Match scheduling</span>
-            <span>Verified outcomes</span>
-            <span>Trusted rankings</span>
+          <div className="landing-proof-row" aria-label="Platform essentials">
+            <span><SidebarIcon name="matches" decorative /> Challenge</span>
+            <span><SidebarIcon name="check" decorative /> Confirm</span>
+            <span><SidebarIcon name="trophy" decorative /> Rank</span>
           </div>
         </div>
 
-        <div className="landing-hero-panel">
-          <div className="landing-hero-stat-card">
-            <p className="landing-panel-label">Competitive workflow</p>
-            <h2>Built for organized rivalry, not guesswork.</h2>
-            <p>
-              From match request to confirmed result, BragRight gives players and admins
-              a cleaner system for competitive accountability.
-            </p>
+        <div className="landing-product-card" aria-label="BragRight match workflow">
+          <header className="landing-product-card__header">
+            <div>
+              <p className="landing-panel-label">Match workflow</p>
+              <h2>Every result earns its place.</h2>
+            </div>
+            <span className="landing-product-status">
+              <SidebarIcon name="bolt" decorative /> Ready
+            </span>
+          </header>
+
+          <div className="landing-product-flow">
+            {matchFlow.map((item, index) => (
+              <div className="landing-product-step" key={item.label}>
+                <span className="landing-product-step__icon" aria-hidden="true">
+                  <SidebarIcon name={item.icon} decorative />
+                </span>
+                <span>
+                  <strong>{item.label}</strong>
+                  <small>{item.detail}</small>
+                </span>
+                {index < matchFlow.length - 1 ? <span className="landing-product-step__line" aria-hidden="true" /> : null}
+              </div>
+            ))}
           </div>
 
-          <div className="landing-hero-metrics">
-            <article className="landing-metric">
-              <strong>Schedule</strong>
-              <span>Send and manage match requests with clarity.</span>
-            </article>
-            <article className="landing-metric">
-              <strong>Confirm</strong>
-              <span>Lock in results with both players on record.</span>
-            </article>
-            <article className="landing-metric">
-              <strong>Compete</strong>
-              <span>Turn every verified match into long-term credibility.</span>
-            </article>
+          <div className="landing-product-card__footer">
+            <SidebarIcon name="trophy" decorative />
+            <strong>One match. One trusted record.</strong>
           </div>
         </div>
       </section>
 
-      <section className="landing-section">
+      <section className="landing-section landing-essentials" aria-labelledby="landing-essentials-title">
         <div className="landing-section-heading">
-          <p className="landing-section-label">Platform features</p>
-          <h2 className="landing-section-title">A professional layer for every competitive match.</h2>
+          <p className="landing-section-label">The essentials</p>
+          <h2 className="landing-section-title" id="landing-essentials-title">Built for the result.</h2>
         </div>
 
         <div className="landing-feature-grid">
-          {featureCards.map((feature) => (
+          {essentials.map((feature) => (
             <article className="landing-feature-card" key={feature.title}>
-              <div className="landing-feature-icon" aria-hidden="true">
-                {feature.title.split(" ")[0].slice(0, 2).toUpperCase()}
-              </div>
+              <span className="landing-feature-icon" aria-hidden="true">
+                <SidebarIcon name={feature.icon} decorative />
+              </span>
               <h3>{feature.title}</h3>
               <p>{feature.description}</p>
             </article>
@@ -131,72 +130,34 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="landing-section landing-section-dark">
+      <section className="landing-section landing-section-dark" aria-labelledby="landing-flow-title">
         <div className="landing-section-heading">
-          <p className="landing-section-label">How it works</p>
-          <h2 className="landing-section-title">Simple enough for players, structured enough for trust.</h2>
+          <p className="landing-section-label">Three clear steps</p>
+          <h2 className="landing-section-title" id="landing-flow-title">Challenge. Confirm. Climb.</h2>
         </div>
 
         <div className="landing-workflow-grid">
-          {workflowSteps.map((step, index) => (
-            <article className="landing-workflow-card" key={step}>
+          {matchFlow.map((step, index) => (
+            <article className="landing-workflow-card" key={step.label}>
               <span className="landing-step-number">0{index + 1}</span>
-              <h3>{step}</h3>
-              <p>
-                {index === 0 && "Join the platform and set up a competitive identity players can recognize."}
-                {index === 1 && "Challenge an opponent and keep the match request visible from the start."}
-                {index === 2 && "Record the score once the match is complete so the result enters review."}
-                {index === 3 && "Give the other player the chance to confirm the outcome or raise a dispute."}
-                {index === 4 && "Build a long-term record that can support rankings, profiles, and reputation."}
-              </p>
+              <SidebarIcon name={step.icon} decorative />
+              <strong>{step.label}</strong>
             </article>
           ))}
         </div>
       </section>
 
-      <section className="landing-section">
-        <div className="landing-trust-panel">
-          <div className="landing-trust-copy">
-            <p className="landing-section-label">Trust and oversight</p>
-            <h2 className="landing-section-title">Competition stays credible when the process is visible.</h2>
-            <p className="landing-trust-description">
-              BragRight supports a more professional competitive environment with admin moderation,
-              dispute review, activity visibility, and fair result tracking built into the experience.
-            </p>
-          </div>
-
-          <div className="landing-trust-list">
-            {trustPoints.map((point) => (
-              <article className="landing-trust-item" key={point}>
-                <span className="landing-trust-badge" aria-hidden="true">
-                  +
-                </span>
-                <p>{point}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="landing-cta">
+      <section className="landing-cta" aria-labelledby="landing-cta-title">
         <div>
-          <p className="landing-section-label">Start competing</p>
-          <h2 className="landing-section-title">Start tracking your competitive record today</h2>
+          <p className="landing-section-label">Your next match matters</p>
+          <h2 className="landing-section-title" id="landing-cta-title">Make it count.</h2>
         </div>
-
-        <div className="landing-hero-actions">
-          <Link className="landing-button landing-button-primary" to="/register">
-            Create Account
-          </Link>
-          <Link className="landing-button landing-button-secondary" to="/login">
-            Log In
-          </Link>
-          {isAuthenticated ? (
-            <Link className="landing-button landing-button-tertiary" to={dashboardPath}>
-              Go to Dashboard
-            </Link>
-          ) : null}
-        </div>
+        <Link
+          className="landing-button landing-button-primary"
+          to={isAuthenticated ? dashboardPath : "/register"}
+        >
+          {isAuthenticated ? "Open BragRight" : "Create Your Record"}
+        </Link>
       </section>
     </section>
   );

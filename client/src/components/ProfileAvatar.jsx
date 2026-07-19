@@ -49,7 +49,7 @@ export default function ProfileAvatar({
           onError={() => setImageFailed(true)}
         />
       ) : initials ? (
-        <span aria-hidden="true">{initials}</span>
+        <span className="profile-avatar__initials" aria-hidden="true">{initials}</span>
       ) : (
         <SidebarIcon
           name="profile"

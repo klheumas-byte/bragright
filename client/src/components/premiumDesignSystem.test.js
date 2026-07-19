@@ -7,6 +7,10 @@ const tokens = readFileSync(new URL("styles/tokens.css", root), "utf8");
 const designSystem = readFileSync(new URL("styles/design-system.css", root), "utf8");
 const premiumTheme = readFileSync(new URL("styles/premium-theme.css", root), "utf8");
 const main = readFileSync(new URL("main.jsx", root), "utf8");
+const avatar = readFileSync(new URL("components/ProfileAvatar.jsx", root), "utf8");
+const adminProfile = readFileSync(new URL("pages/AdminProfile.jsx", root), "utf8");
+const home = readFileSync(new URL("pages/Home.jsx", root), "utf8");
+const navbar = readFileSync(new URL("components/Navbar.jsx", root), "utf8");
 
 test("the canonical premium layer loads after retained page styles", () => {
   assert.ok(main.indexOf('import "./index.css"') < main.indexOf('import "./styles/premium-theme.css"'));
@@ -40,6 +44,29 @@ test("light panels, sidebar icons, and opponent selection retain visible contras
   assert.match(premiumTheme, /\.sidebar-link-active \.sidebar-link-icon[\s\S]*?background:\s*var\(--accent-primary-strong\)/);
   assert.match(premiumTheme, /\.opponent-option-card\.opponent-option-selected[\s\S]*?border:\s*2px solid var\(--accent-primary-strong\)[\s\S]*?background:\s*var\(--surface-panel-strong\)/);
   assert.match(premiumTheme, /\.opponent-selected-check[\s\S]*?background:\s*var\(--accent-primary-strong\)/);
+});
+
+test("every avatar fallback uses the shared high-contrast premium treatment", () => {
+  assert.match(tokens, /html\[data-theme="dark"\][\s\S]*?--avatar-background-start:[\s\S]*?--avatar-foreground:\s*#ffffff/);
+  assert.match(tokens, /html\[data-theme="light"\][\s\S]*?--avatar-background-start:[\s\S]*?--avatar-foreground:\s*#ffffff/);
+  assert.match(avatar, /className="profile-avatar__initials"/);
+  assert.match(premiumTheme, /\.profile-avatar__initials[\s\S]*?font-weight:\s*var\(--font-weight-black\)/);
+  assert.match(premiumTheme, /\.opponent-option-card \.profile-avatar/);
+  assert.match(premiumTheme, /\.sidebar-avatar[\s\S]*?var\(--avatar-background-start\)/);
+  assert.match(adminProfile, /<ProfileAvatar[\s\S]*?size="xl"/);
+  assert.doesNotMatch(adminProfile, /function getInitials/);
+});
+
+test("the public opening page is concise, premium, and contrast-safe", () => {
+  assert.match(home, /Play it\. <span>Prove it\.<\/span> Own it\./);
+  assert.match(home, /const essentials = \[[\s\S]*?Challenge clearly[\s\S]*?Confirm confidently[\s\S]*?Rank credibly/);
+  assert.match(home, /const matchFlow = \[[\s\S]*?Challenge[\s\S]*?Result[\s\S]*?Record/);
+  assert.doesNotMatch(home, /trustPoints|Platform features|How it works|Start tracking your competitive record/);
+  assert.match(navbar, /Play\. Prove\. Rank\./);
+  assert.match(premiumTheme, /\.app-shell > \.navbar[\s\S]*?var\(--landing-hero-start\)[\s\S]*?var\(--landing-hero-end\)/);
+  assert.match(premiumTheme, /\.landing-title span[\s\S]*?var\(--accent-primary\)/);
+  assert.match(premiumTheme, /\.landing-feature-grid[\s\S]*?repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(premiumTheme, /@media \(max-width:\s*640px\)[\s\S]*?\.landing-feature-grid[\s\S]*?grid-template-columns:\s*1fr/);
 });
 
 test("all official match statuses have theme-independent semantic mappings", () => {

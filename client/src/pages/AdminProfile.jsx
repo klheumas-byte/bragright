@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import ActivityList from "../components/ActivityList";
 import ErrorState from "../components/ErrorState";
+import ProfileAvatar from "../components/ProfileAvatar";
 import SectionLoader from "../components/SectionLoader";
 import { useAuth } from "../context/AuthContext";
-import { getApiAssetUrl, getAdminProfile } from "../services/api";
+import { getAdminProfile } from "../services/api";
 import DashboardLayout from "../layouts/DashboardLayout";
 
 const emptyProfile = {
@@ -51,7 +52,6 @@ export default function AdminProfile() {
     }
   }
 
-  const avatarImage = getApiAssetUrl(profile.profile_image);
   const accessCards = [
     { label: "Managed Users", value: profile.access_summary.managed_users },
     { label: "Active Players", value: profile.access_summary.active_players },
@@ -75,13 +75,13 @@ export default function AdminProfile() {
           <section className="profile-hero-card">
             <div className="profile-hero-layout">
               <div className="profile-identity-block">
-                <div className="profile-avatar profile-avatar-large">
-                  {avatarImage ? (
-                    <img src={avatarImage} alt={`${profile.username || "Admin"} profile`} className="profile-avatar-image" />
-                  ) : (
-                    getInitials(profile.username || profile.email || user?.email || "AD")
-                  )}
-                </div>
+                <ProfileAvatar
+                  image={profile.profile_image}
+                  name={profile.username || user?.username || "Admin"}
+                  size="xl"
+                  className="profile-avatar-large"
+                  loading="eager"
+                />
 
                 <div className="profile-identity-copy">
                   <h2 className="profile-hero-title">{profile.username || user?.username || "Admin"}</h2>
@@ -196,13 +196,4 @@ function formatDate(value) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
-}
-
-function getInitials(value) {
-  return String(value || "")
-    .split(/[\s@._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0].toUpperCase())
-    .join("");
 }

@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense } from "react";
 import { Route, Routes } from "react-router-dom";
 import { AuthPageSkeleton } from "./components/LoadingSkeletons";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -6,25 +6,26 @@ import RouteProgress from "./components/RouteProgress";
 import { DashboardLayoutProvider, DashboardShell } from "./layouts/DashboardLayout";
 import MainLayout from "./layouts/MainLayout";
 import { NotificationProvider } from "./notifications/NotificationCenter";
+import { lazyWithRouteRecovery } from "./utils/lazyWithRouteRecovery";
 
-const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
-const AdminActivity = lazy(() => import("./pages/AdminActivity"));
-const AdminSettings = lazy(() => import("./pages/AdminSettings"));
-const AdminUsers = lazy(() => import("./pages/AdminUsers"));
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const AdminDisputes = lazy(() => import("./pages/AdminDisputes"));
-const AdminProfile = lazy(() => import("./pages/AdminProfile"));
-const HeadToHead = lazy(() => import("./pages/HeadToHead"));
-const Home = lazy(() => import("./pages/Home"));
-const Leaderboard = lazy(() => import("./pages/Leaderboard"));
-const Login = lazy(() => import("./pages/Login"));
-const MyActivity = lazy(() => import("./pages/MyActivity"));
-const MyMatches = lazy(() => import("./pages/MyMatches"));
-const NotFound = lazy(() => import("./pages/NotFound"));
-const Profile = lazy(() => import("./pages/Profile"));
-const PlayerProfile = lazy(() => import("./pages/PlayerProfile"));
-const Register = lazy(() => import("./pages/Register"));
-const SubmitMatch = lazy(() => import("./pages/SubmitMatch"));
+const AdminDashboard = lazyWithRouteRecovery(() => import("./pages/AdminDashboard"), "admin-dashboard");
+const AdminActivity = lazyWithRouteRecovery(() => import("./pages/AdminActivity"), "admin-activity");
+const AdminSettings = lazyWithRouteRecovery(() => import("./pages/AdminSettings"), "admin-settings");
+const AdminUsers = lazyWithRouteRecovery(() => import("./pages/AdminUsers"), "admin-users");
+const Dashboard = lazyWithRouteRecovery(() => import("./pages/Dashboard"), "dashboard");
+const AdminDisputes = lazyWithRouteRecovery(() => import("./pages/AdminDisputes"), "admin-disputes");
+const AdminProfile = lazyWithRouteRecovery(() => import("./pages/AdminProfile"), "admin-profile");
+const HeadToHead = lazyWithRouteRecovery(() => import("./pages/HeadToHead"), "head-to-head");
+const Home = lazyWithRouteRecovery(() => import("./pages/Home"), "home");
+const Leaderboard = lazyWithRouteRecovery(() => import("./pages/Leaderboard"), "leaderboard");
+const Login = lazyWithRouteRecovery(() => import("./pages/Login"), "login");
+const MyActivity = lazyWithRouteRecovery(() => import("./pages/MyActivity"), "activity");
+const MyMatches = lazyWithRouteRecovery(() => import("./pages/MyMatches"), "matches");
+const NotFound = lazyWithRouteRecovery(() => import("./pages/NotFound"), "not-found");
+const Profile = lazyWithRouteRecovery(() => import("./pages/Profile"), "profile");
+const PlayerProfile = lazyWithRouteRecovery(() => import("./pages/PlayerProfile"), "player-profile");
+const Register = lazyWithRouteRecovery(() => import("./pages/Register"), "register");
+const SubmitMatch = lazyWithRouteRecovery(() => import("./pages/SubmitMatch"), "submit-match");
 
 export default function App() {
   return (

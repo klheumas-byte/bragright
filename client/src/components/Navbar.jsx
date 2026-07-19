@@ -11,7 +11,7 @@ export default function Navbar() {
         <span className="brand-mark">BR</span>
         <div>
           <p className="brand-tag">BragRight</p>
-          <h1 className="brand-title">Competitive match tracking</h1>
+          <h1 className="brand-title">Play. Prove. Rank.</h1>
         </div>
       </NavLink>
 
@@ -35,13 +35,13 @@ export default function Navbar() {
           to="/login"
           className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
         >
-          Login
+          Sign in
         </NavLink>
         <NavLink
           to="/register"
           className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
         >
-          Register
+          Join
         </NavLink>
       </nav>
     </header>
