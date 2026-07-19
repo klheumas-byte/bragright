@@ -96,6 +96,11 @@
   --font-size-xl: 1.25rem;
   --font-size-2xl: 1.5rem;
   --font-size-3xl: 2rem;
+  --font-size-display: clamp(2.35rem, 5vw, 4.5rem);
+  --font-size-heading-1: clamp(1.9rem, 3.5vw, 3rem);
+  --font-size-heading-2: clamp(1.4rem, 2.5vw, 2rem);
+  --font-size-heading-3: 1.125rem;
+  --font-size-stat: clamp(1.75rem, 3vw, 2.75rem);
   --font-weight-regular: 400;
   --font-weight-medium: 600;
   --font-weight-bold: 700;
@@ -104,6 +109,9 @@
   --line-height-tight: 1.15;
   --line-height-heading: 1.25;
   --line-height-body: 1.5;
+  --letter-spacing-display: -0.045em;
+  --letter-spacing-heading: -0.025em;
+  --letter-spacing-label: 0.08em;
 
   /* Shape */
   --radius-xs: 8px;
@@ -116,6 +124,14 @@
   --radius-3xl: 28px;
   --radius-4xl: 34px;
   --radius-pill: 999px;
+
+  /* Component dimensions */
+  --control-height-sm: 36px;
+  --control-height-md: 44px;
+  --control-height-lg: 48px;
+  --icon-size-sm: 16px;
+  --icon-size-md: 20px;
+  --icon-size-lg: 24px;
 
   /* Elevation */
   --shadow-xs: 0 10px 25px rgba(18, 35, 52, 0.05);
@@ -239,12 +255,16 @@ html[data-theme="dark"] {
   --surface-soft: #243b48;
   --surface-highlight: #2a4653;
   --surface-interactive: var(--surface-highlight);
+  --surface-panel: #192d38;
+  --surface-panel-strong: #213b47;
   --accent-primary: #18d5c3;
   --accent-primary-strong: #11b9aa;
   --accent-secondary: #3b9eff;
   --accent-secondary-strong: #007fff;
   --accent-orange: #ff8a2a;
   --accent-orange-strong: #ff6a00;
+  --accent-prestige: #f2c55c;
+  --accent-prestige-soft: rgba(242, 197, 92, 0.12);
   --status-success: #00d97e;
   --status-warning: #ffc107;
   --status-danger: #ff4d4f;
@@ -263,8 +283,12 @@ html[data-theme="dark"] {
   --glow-primary: rgba(24, 213, 195, 0.12);
   --glow-secondary: rgba(59, 158, 255, 0.1);
   --glow-orange: rgba(255, 138, 42, 0.16);
-  --shadow-card: 0 14px 34px rgba(0, 0, 0, 0.26);
-  --shadow-elevated: 0 20px 48px rgba(0, 0, 0, 0.34);
+  /* The only three permitted elevation levels. */
+  --elevation-background: none;
+  --elevation-card: 0 12px 30px rgba(0, 0, 0, 0.22);
+  --elevation-featured: 0 20px 48px rgba(0, 0, 0, 0.34);
+  --shadow-card: var(--elevation-card);
+  --shadow-elevated: var(--elevation-featured);
   --gradient-primary: linear-gradient(135deg, #18d5c3 0%, #3b9eff 100%);
   --gradient-blue: linear-gradient(135deg, #3b9eff 0%, #18d5c3 100%);
   --gradient-orange: linear-gradient(135deg, #ff8a2a 0%, #ff6a00 100%);
@@ -274,6 +298,8 @@ html[data-theme="dark"] {
   --icon-muted: #8ea3ad;
   --icon-surface: #243b48;
   --icon-surface-active: #2a4653;
+  --icon-surface-strong: #294b58;
+  --icon-border: #47707d;
   --icon-success: #00d97e;
   --icon-warning: #ffc107;
   --icon-danger: #ff4d4f;
@@ -287,29 +313,37 @@ html[data-theme="light"] {
   --surface-soft: #e7f3f2;
   --surface-highlight: #ddf0ee;
   --surface-interactive: var(--surface-highlight);
+  --surface-panel: #d8e5e8;
+  --surface-panel-strong: #c4dcdf;
   --accent-primary: #009f96;
   --accent-primary-strong: #007f79;
   --accent-secondary: #247fd1;
   --accent-secondary-strong: #075faf;
   --accent-orange: #f87818;
   --accent-orange-strong: #d95f00;
+  --accent-prestige: #9a6b08;
+  --accent-prestige-soft: rgba(154, 107, 8, 0.1);
   --status-success: #078a55;
   --status-warning: #c98300;
   --status-danger: #d93946;
   --status-info: #147bd1;
   --text-primary: #152832;
   --text-secondary: #49616c;
-  --text-muted: #718892;
+  --text-muted: #526b76;
   --text-disabled: #9aabb7;
   --text-on-accent: #ffffff;
-  --border-subtle: #c7dad9;
+  --border-subtle: #aac4c8;
   --border-active: rgba(0, 159, 150, 0.42);
   --border-blue: rgba(36, 127, 209, 0.34);
   --border-primary: var(--border-active);
   --border-secondary: var(--border-blue);
   --border-orange: rgba(248, 117, 0, 0.48);
-  --shadow-card: 0 10px 26px rgba(36, 82, 92, 0.1);
-  --shadow-elevated: 0 16px 38px rgba(36, 82, 92, 0.14);
+  /* The only three permitted elevation levels. */
+  --elevation-background: none;
+  --elevation-card: 0 8px 22px rgba(36, 82, 92, 0.08);
+  --elevation-featured: 0 16px 38px rgba(36, 82, 92, 0.14);
+  --shadow-card: var(--elevation-card);
+  --shadow-elevated: var(--elevation-featured);
   --glow-primary: rgba(0, 159, 150, 0.1);
   --glow-secondary: rgba(20, 123, 209, 0.1);
   --glow-orange: rgba(248, 117, 0, 0.14);
@@ -317,11 +351,13 @@ html[data-theme="light"] {
   --gradient-blue: linear-gradient(135deg, #247fd1 0%, #21bfd0 100%);
   --gradient-orange: linear-gradient(135deg, #f87818 0%, #f26300 100%);
   --gradient-arena-watermark: radial-gradient(circle at 70% 20%, rgba(0, 159, 150, 0.1), transparent 40%);
-  --icon-primary: #007f79;
+  --icon-primary: #006d68;
   --icon-secondary: #247fd1;
   --icon-muted: #5f7883;
   --icon-surface: #e7f3f2;
   --icon-surface-active: #ddf0ee;
+  --icon-surface-strong: #bcd7da;
+  --icon-border: #759da4;
   --icon-success: #078a55;
   --icon-warning: #a96f00;
   --icon-danger: #c52f3d;
@@ -347,6 +383,14 @@ html[data-theme] {
   --color-brand-300: var(--accent-secondary);
   --color-energy: var(--accent-primary);
   --color-energy-soft: var(--surface-interactive);
+  /* Compatibility aliases consumed by retained activity/icon selectors. */
+  --surface: var(--surface-primary);
+  --surface-muted: var(--icon-surface-strong);
+  --primary: var(--status-info);
+  --success: var(--status-success);
+  --warning-strong: var(--status-warning);
+  --color-accent: var(--accent-prestige);
+  --color-accent-soft: var(--accent-prestige-soft);
   --color-success: var(--status-success);
   --color-success-strong: var(--status-success);
   --color-success-surface: color-mix(in srgb, var(--status-success) 12%, transparent);
@@ -362,7 +406,7 @@ html[data-theme] {
   --shadow-sm: var(--shadow-card);
   --shadow-md: var(--shadow-card);
   --shadow-lg: var(--shadow-elevated);
-  --shadow-energy: 0 16px 38px var(--glow-primary);
+  --shadow-energy: var(--elevation-featured);
   --glow-energy: 0 0 28px var(--glow-primary);
   --focus-ring: 0 0 0 4px var(--glow-primary);
 }

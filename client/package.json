@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/services/api.auth.test.js src/context/themePreference.test.js src/pages/dashboardViewModel.test.js src/pages/profileViewModel.test.js src/pages/leaderboardViewModel.test.js src/pages/matchPresentation.test.js src/components/sidebarViewModel.test.js src/components/sidebarLayout.test.js src/components/gamingTheme.test.js src/components/themeUi.test.js src/components/activityPresentation.test.js src/components/loadingSystem.test.js src/components/richMatchCard.test.js src/components/matchCenter.test.js src/components/playerIdentity.test.js src/components/engagement.test.js src/components/competitiveIntelligence.test.js src/components/mobileFastScroll.test.js src/notifications/notificationCenter.test.js"
+    "test": "node --test src/services/api.auth.test.js src/context/themePreference.test.js src/pages/dashboardViewModel.test.js src/pages/profileViewModel.test.js src/pages/leaderboardViewModel.test.js src/pages/matchPresentation.test.js src/components/sidebarViewModel.test.js src/components/sidebarLayout.test.js src/components/gamingTheme.test.js src/components/themeUi.test.js src/components/premiumDesignSystem.test.js src/components/activityPresentation.test.js src/components/loadingSystem.test.js src/components/richMatchCard.test.js src/components/matchCenter.test.js src/components/playerIdentity.test.js src/components/engagement.test.js src/components/competitiveIntelligence.test.js src/components/mobileFastScroll.test.js src/notifications/notificationCenter.test.js"
   },
   "dependencies": {
     "react": "^18.3.1",

@@ -10,6 +10,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import "./styles/tokens.css";
 import "./styles/design-system.css";
 import "./index.css";
+import "./styles/premium-theme.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

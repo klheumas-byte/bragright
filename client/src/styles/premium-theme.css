@@ -1,0 +1,538 @@
+/*
+ * Phase 3.4A canonical presentation layer.
+ *
+ * This file loads after retained page styles so every screen consumes the same
+ * semantic theme without changing component contracts or application behavior.
+ */
+
+html[data-theme] {
+  color-scheme: light;
+  background: var(--app-background);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-theme] body {
+  color: var(--text-primary);
+  background:
+    radial-gradient(circle at 15% 0%, var(--glow-primary), transparent 30%),
+    linear-gradient(180deg, var(--app-background-secondary), var(--app-background));
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-body);
+  text-rendering: optimizeLegibility;
+}
+
+html[data-theme] :is(h1, h2, h3, .feature-hero-title, .profile-hero-title, .dashboard-header-title, .panel-title) {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-extra-bold);
+  letter-spacing: var(--letter-spacing-heading);
+  line-height: var(--line-height-heading);
+  text-wrap: balance;
+}
+
+html[data-theme] :is(.section-label, .panel-kicker, .action-card-eyebrow, .sidebar-section-label, .ui-table th) {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-extra-bold);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+}
+
+html[data-theme] :is(.section-copy, .panel-subtitle, .feature-hero-copy, .profile-hero-email, .ui-page-section__description) {
+  color: var(--text-secondary);
+}
+
+html[data-theme] :is(.stat-card-value, .admin-summary-value, .match-center__score-value) {
+  color: var(--text-primary);
+  font-size: var(--font-size-stat);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--letter-spacing-heading);
+}
+
+/* One surface language across landing, authentication, player, and admin UI. */
+html[data-theme] :is(
+  .navbar,
+  .card,
+  .auth-card,
+  .dashboard-header,
+  .dashboard-panel,
+  .admin-summary-card,
+  .admin-foundation-card,
+  .admin-user-card,
+  .admin-activity-card,
+  .admin-moderation-card,
+  .admin-resolution-card,
+  .admin-generated-password-card,
+  .activity-item,
+  .notification-card,
+  .notification-banner,
+  .leaderboard-row-link,
+  .profile-stat-card,
+  .profile-meta-card,
+  .action-card,
+  .stat-card,
+  .rivalry-player-card,
+  .match-detail-card,
+  .match-challenge-card,
+  .match-proof-panel,
+  .match-dispute-note-panel,
+  .selected-opponent-card,
+  .opponent-option-card,
+  .match-center__comparison-card,
+  .match-center__information-card,
+  .competitive-pulse__item,
+  .engagement-highlight,
+  .competitive-moment,
+  .heads-up,
+  .notification-drawer-item,
+  .ui-card,
+  .ui-table-shell,
+  .ui-modal
+) {
+  border-color: var(--border-subtle);
+  background: var(--surface-primary);
+  color: var(--text-primary);
+  box-shadow: var(--elevation-card);
+}
+
+html[data-theme] :is(
+  .feature-hero-card,
+  .profile-hero-card,
+  .match-hero,
+  .match-center__hero,
+  .podium-card,
+  .ui-card--featured
+) {
+  border: 1px solid var(--border-primary);
+  background:
+    radial-gradient(circle at 76% 16%, var(--glow-primary), transparent 38%),
+    linear-gradient(145deg, var(--surface-primary), var(--surface-elevated));
+  color: var(--text-primary);
+  box-shadow: var(--elevation-featured);
+}
+
+html[data-theme] :is(.card, .dashboard-panel, .ui-card, .feature-hero-card, .profile-hero-card) {
+  border-radius: var(--radius-2xl);
+}
+
+html[data-theme] :is(.ui-card--padded, .dashboard-panel, .feature-hero-card, .profile-hero-card) {
+  padding: var(--space-6);
+}
+
+/* Panels need a clearly visible tier between the canvas and white/elevated cards. */
+html[data-theme] :is(.dashboard-panel, .admin-foundation-card, .match-detail-card, .match-challenge-card) {
+  border-color: var(--icon-border);
+  background: var(--surface-panel);
+}
+
+html[data-theme] :is(.dashboard-panel, .admin-foundation-card) :is(
+  .stat-card,
+  .action-card,
+  .activity-item,
+  .notification-card,
+  .leaderboard-row-link,
+  .profile-stat-card,
+  .match-center__comparison-card,
+  .match-center__information-card
+) {
+  border-color: var(--border-subtle);
+  background: var(--surface-primary);
+}
+
+/* Shared interaction contract. */
+html[data-theme] :is(button, a, input, select, textarea, [role="button"]):focus-visible {
+  outline: 2px solid var(--accent-secondary);
+  outline-offset: 3px;
+  box-shadow: var(--focus-ring);
+}
+
+html[data-theme] .ui-button {
+  min-height: var(--control-height-md);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elevation-background);
+}
+
+html[data-theme] .ui-button--primary {
+  border-color: var(--border-primary);
+  background: var(--gradient-primary);
+  color: var(--text-on-accent);
+  box-shadow: var(--elevation-card);
+}
+
+html[data-theme] .ui-button--secondary {
+  border-color: var(--border-subtle);
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+}
+
+html[data-theme] :is(.ui-button--outline, .ui-button--ghost) {
+  border-color: var(--border-secondary);
+  background: transparent;
+  color: var(--accent-secondary);
+}
+
+html[data-theme] .ui-button--danger {
+  border-color: color-mix(in srgb, var(--status-danger) 38%, transparent);
+  background: color-mix(in srgb, var(--status-danger) 11%, var(--surface-primary));
+  color: var(--status-danger);
+}
+
+html[data-theme] .ui-button--success {
+  border-color: color-mix(in srgb, var(--status-success) 42%, transparent);
+  background: var(--status-success);
+  color: var(--text-on-accent);
+}
+
+html[data-theme] .ui-button--premium {
+  border-color: color-mix(in srgb, var(--accent-prestige) 44%, transparent);
+  background: var(--accent-prestige-soft);
+  color: var(--accent-prestige);
+}
+
+html[data-theme] :is(.ui-button:disabled, .ui-button[aria-disabled="true"]) {
+  color: var(--text-disabled);
+  opacity: 0.68;
+}
+
+/* Forms use the same input geometry and focus treatment everywhere. */
+html[data-theme] :is(
+  .ui-input,
+  .ui-select,
+  .ui-textarea,
+  .form-field input,
+  .form-field select,
+  .form-field textarea,
+  .filter-control,
+  #opponent-search
+) {
+  min-height: var(--control-height-lg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+  box-shadow: var(--elevation-background);
+}
+
+html[data-theme] :is(.ui-input, .ui-textarea, .form-field input, .form-field textarea, #opponent-search)::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+html[data-theme] :is(.ui-input, .ui-select, .ui-textarea)[aria-invalid="true"] {
+  border-color: var(--status-danger);
+}
+
+html[data-theme] :is(.ui-choice, .ui-switch, .ui-form-field, .form-field) {
+  color: var(--text-primary);
+}
+
+/* Statuses are semantic and identical in every context. */
+html[data-theme] :is(
+  .match-status-pending,
+  .status-pill-pending,
+  .ui-badge--pending,
+  .ui-badge--warning,
+  [data-status="pending"],
+  [data-status="draft"]
+) {
+  border-color: color-mix(in srgb, var(--status-warning) 42%, transparent);
+  background: color-mix(in srgb, var(--status-warning) 11%, var(--surface-primary));
+  color: var(--status-warning);
+}
+
+html[data-theme] :is(
+  .match-status-accepted,
+  .match-status-confirmed,
+  .status-pill-active,
+  .ui-badge--accepted,
+  .ui-badge--info,
+  [data-status="accepted"]
+) {
+  border-color: var(--border-secondary);
+  background: color-mix(in srgb, var(--status-info) 10%, var(--surface-primary));
+  color: var(--status-info);
+}
+
+html[data-theme] :is(
+  .match-status-completed,
+  .status-pill-confirmed,
+  .ui-badge--completed,
+  .ui-badge--resolved,
+  .ui-badge--success,
+  [data-status="completed"],
+  [data-status="resolved"]
+) {
+  border-color: color-mix(in srgb, var(--status-success) 40%, transparent);
+  background: color-mix(in srgb, var(--status-success) 10%, var(--surface-primary));
+  color: var(--status-success);
+}
+
+html[data-theme] :is(
+  .match-status-cancelled,
+  .match-status-rejected,
+  .match-status-disputed,
+  .status-pill-disputed,
+  .ui-badge--cancelled,
+  .ui-badge--disputed,
+  .ui-badge--danger,
+  [data-status="cancelled"],
+  [data-status="disputed"]
+) {
+  border-color: color-mix(in srgb, var(--status-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--status-danger) 10%, var(--surface-primary));
+  color: var(--status-danger);
+}
+
+html[data-theme] :is(.match-status-expired, .ui-badge--expired, [data-status="expired"]) {
+  border-color: var(--border-subtle);
+  background: var(--surface-soft);
+  color: var(--text-muted);
+}
+
+html[data-theme] :is(.ui-badge--champion, .ui-badge--prestige, .sidebar-user-rank) {
+  border-color: color-mix(in srgb, var(--accent-prestige) 45%, transparent);
+  background: var(--accent-prestige-soft);
+  color: var(--accent-prestige);
+}
+
+/* Navigation and global chrome. */
+html[data-theme] .dashboard-sidebar {
+  border-color: var(--border-subtle);
+  background: linear-gradient(180deg, var(--surface-primary), var(--app-background-secondary));
+  box-shadow: var(--elevation-featured);
+}
+
+html[data-theme] :is(.sidebar-link, .sidebar-logout) {
+  min-height: var(--control-height-md);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+}
+
+html[data-theme] .sidebar-link-icon {
+  display: grid;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--icon-border);
+  border-radius: var(--radius-md);
+  background: var(--icon-surface-strong);
+  color: var(--icon-primary);
+  box-shadow: var(--elevation-background);
+}
+
+html[data-theme] .sidebar-link-icon .sidebar-svg-icon {
+  width: var(--icon-size-md);
+  height: var(--icon-size-md);
+  stroke-width: 2.25;
+}
+
+html[data-theme] :is(.sidebar-link:hover, .sidebar-link:focus-visible, .sidebar-logout:hover) {
+  border-color: var(--border-subtle);
+  background: var(--surface-soft);
+  color: var(--text-primary);
+}
+
+html[data-theme] .sidebar-link-active {
+  border-color: var(--border-primary);
+  background: var(--surface-interactive);
+  color: var(--text-primary);
+  box-shadow: inset 3px 0 0 var(--accent-primary);
+}
+
+html[data-theme] .sidebar-link-active .sidebar-link-icon {
+  border-color: var(--accent-primary-strong);
+  background: var(--accent-primary-strong);
+  color: var(--text-on-accent);
+  box-shadow: var(--elevation-card);
+}
+
+html[data-theme] :is(.sidebar-svg-icon, .ui-button .sidebar-svg-icon) {
+  width: var(--icon-size-md);
+  height: var(--icon-size-md);
+}
+
+/* One visible icon-tile treatment across side panels and summary cards. */
+html[data-theme] :is(
+  .stat-card-icon,
+  .dashboard-quick-action-icon,
+  .competitive-pulse__item > span,
+  .activity-item__icon,
+  .arena-hero-icon
+) {
+  border: 1px solid var(--icon-border);
+  background: var(--icon-surface-strong);
+  color: var(--icon-primary);
+  box-shadow: var(--elevation-background);
+}
+
+html[data-theme] :is(.stat-card-icon, .dashboard-quick-action-icon, .arena-hero-icon) {
+  min-width: 42px;
+  min-height: 42px;
+}
+
+html[data-theme] .activity-item__icon--success { color: var(--status-success); }
+html[data-theme] .activity-item__icon--warning { color: var(--status-warning); }
+html[data-theme] .activity-item__icon--info { color: var(--status-info); }
+
+/* Opponent choices must read as selectable controls before and after selection. */
+html[data-theme] .opponent-option-card {
+  border: 1px solid var(--icon-border);
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+  box-shadow: var(--elevation-background);
+}
+
+html[data-theme] .opponent-option-card :is(strong, small, .opponent-option-meta),
+html[data-theme] .selected-opponent-card :is(strong, span, small, .opponent-option-meta) {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+html[data-theme] .opponent-option-card :is(small, .opponent-option-meta),
+html[data-theme] .selected-opponent-card :is(small, .opponent-option-meta) {
+  color: var(--text-secondary);
+}
+
+html[data-theme] .opponent-option-card:hover,
+html[data-theme] .opponent-option-card:focus-visible {
+  border-color: var(--accent-primary);
+  background: var(--surface-panel-strong);
+  box-shadow: var(--elevation-card);
+}
+
+html[data-theme] .opponent-option-card.opponent-option-selected,
+html[data-theme] .dashboard-shell .selected-opponent-card {
+  border: 2px solid var(--accent-primary-strong);
+  background: var(--surface-panel-strong);
+  color: var(--text-primary);
+  box-shadow: var(--elevation-featured);
+}
+
+html[data-theme] :is(.opponent-selected-check, .selected-opponent-confirmation) {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--accent-primary-strong);
+  background: var(--accent-primary-strong);
+  color: var(--text-on-accent);
+  box-shadow: var(--elevation-card);
+}
+
+html[data-theme] :is(.opponent-selected-check, .selected-opponent-confirmation) .sidebar-svg-icon {
+  width: var(--icon-size-md);
+  height: var(--icon-size-md);
+  stroke-width: 2.5;
+}
+
+html[data-theme] :is(.dashboard-header, .navbar) {
+  border-color: var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-primary) 94%, transparent);
+  box-shadow: var(--elevation-card);
+  backdrop-filter: blur(16px);
+}
+
+html[data-theme] :is(.dashboard-user-trigger, .dashboard-user-menu, .dashboard-logout-button, .dashboard-menu-button, .theme-switcher-trigger) {
+  border-color: var(--border-subtle);
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+  box-shadow: var(--elevation-background);
+}
+
+/* Dialogs, drawers, tooltips, and tables share elevation and border roles. */
+html[data-theme] :is(.ui-modal, .admin-modal, .notification-drawer, .dashboard-user-menu, .theme-switcher-menu) {
+  border-color: var(--border-subtle);
+  background: var(--surface-primary);
+  color: var(--text-primary);
+  box-shadow: var(--elevation-featured);
+}
+
+html[data-theme] :is(.sidebar-tooltip, [role="tooltip"]) {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+  box-shadow: var(--elevation-card);
+}
+
+html[data-theme] :is(.ui-table-shell, .admin-users-table) {
+  border-color: var(--border-subtle);
+  background: var(--surface-primary);
+}
+
+html[data-theme] :is(.ui-table th, .ui-table td, .admin-users-table-header, .admin-user-row) {
+  border-color: var(--border-subtle);
+}
+
+html[data-theme] :is(.ui-table tbody tr:hover, .admin-user-row:hover, .leaderboard-row-link:hover) {
+  background: var(--surface-soft);
+}
+
+/* Existing chart uses brand roles and remains readable in both themes. */
+html[data-theme] .momentum-chart {
+  border-color: var(--border-subtle);
+  background: var(--surface-soft);
+}
+
+html[data-theme] .momentum-bar {
+  background: var(--gradient-primary);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme] :is(.ui-card--dashboard, .ui-card--admin, .ui-card--profile, .ui-card--match, .action-card, .leaderboard-row-link):hover {
+    transform: translateY(-2px);
+    border-color: var(--border-primary);
+    box-shadow: var(--elevation-featured);
+  }
+}
+
+@media (max-width: 900px) {
+  html[data-theme] :is(.dashboard-header, .feature-hero-card, .profile-hero-card, .dashboard-panel, .ui-card--padded) {
+    padding: var(--space-5);
+  }
+
+  html[data-theme] .dashboard-sidebar {
+    box-shadow: var(--elevation-featured);
+  }
+}
+
+@media (max-width: 640px) {
+  html[data-theme] :is(.dashboard-header, .feature-hero-card, .profile-hero-card, .dashboard-panel, .ui-card--padded) {
+    padding: var(--space-4);
+    border-radius: var(--radius-xl);
+  }
+
+  html[data-theme] :is(.feature-hero-title, .profile-hero-title, .dashboard-header-title) {
+    overflow-wrap: anywhere;
+  }
+
+  html[data-theme] :is(.ui-button, .nav-link, .sidebar-link, .sidebar-logout) {
+    min-height: var(--control-height-md);
+  }
+
+  html[data-theme] :is(.ui-modal, .admin-modal, .notification-drawer) {
+    max-width: 100vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme] *,
+  html[data-theme] *::before,
+  html[data-theme] *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  html[data-theme] :is(.ui-button, .ui-card, .dashboard-panel, .match-status-badge, .ui-badge) {
+    border: 1px solid CanvasText;
+  }
+
+  html[data-theme] :is(button, a, input, select, textarea, [role="button"]):focus-visible {
+    outline: 3px solid Highlight;
+  }
+}

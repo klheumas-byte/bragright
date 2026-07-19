@@ -1,6 +1,6 @@
 .ui-button {
   display: inline-flex;
-  min-height: 44px;
+  min-height: var(--control-height-md);
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
@@ -45,7 +45,7 @@
 }
 
 .ui-button--primary {
-  border-color: rgba(93, 214, 255, 0.22);
+  border-color: var(--border-primary);
   background: var(--gradient-energy);
   color: var(--color-surface);
   box-shadow: var(--shadow-energy);
@@ -70,47 +70,44 @@
 }
 
 .ui-button--danger {
-  border-color: rgba(180, 35, 24, 0.16);
+  border-color: color-mix(in srgb, var(--color-danger) 28%, transparent);
   background: var(--color-danger-surface);
   color: var(--color-danger);
 }
 
 .ui-button--success {
-  background: linear-gradient(
-    135deg,
-    var(--color-success-strong) 0%,
-    #22a55b 100%
-  );
-  color: var(--color-surface);
+  border-color: color-mix(in srgb, var(--status-success) 42%, transparent);
+  background: var(--status-success);
+  color: var(--text-on-accent);
 }
 
 .ui-button--challenge {
-  border-color: var(--arena-border-teal);
-  background: linear-gradient(135deg, #0d9f91, var(--arena-teal));
-  color: #031b20;
-  box-shadow: 0 14px 34px var(--arena-glow-teal);
+  border-color: var(--border-orange);
+  background: var(--gradient-orange);
+  color: var(--text-on-accent);
+  box-shadow: var(--elevation-card);
 }
 
 .ui-button--premium {
-  border-color: var(--arena-border-purple);
-  background: linear-gradient(135deg, #7043df, var(--arena-purple));
-  color: #fff;
-  box-shadow: 0 14px 34px var(--arena-glow-purple);
+  border-color: color-mix(in srgb, var(--accent-prestige) 45%, transparent);
+  background: var(--accent-prestige-soft);
+  color: var(--accent-prestige);
+  box-shadow: var(--elevation-card);
 }
 
 .ui-button--sm {
-  min-height: 36px;
+  min-height: var(--control-height-sm);
   padding: 8px 12px;
   font-size: var(--font-size-sm);
 }
 
 .ui-button--lg {
-  min-height: 48px;
+  min-height: var(--control-height-lg);
   padding: 13px 20px;
 }
 
 .ui-button--icon {
-  width: 44px;
+  width: var(--control-height-md);
   padding: 0;
   border-radius: var(--radius-lg);
 }
@@ -138,7 +135,7 @@
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-2xl);
   background:
-    linear-gradient(135deg, rgba(93, 214, 255, 0.045), transparent 34%),
+    linear-gradient(135deg, var(--glow-primary), transparent 34%),
     var(--color-surface);
   transition: var(--transition-interactive), var(--transition-colors);
 }
@@ -156,7 +153,7 @@
   .ui-card--profile:hover,
   .ui-card--match:hover {
     transform: translateY(-3px);
-    border-color: rgba(47, 130, 200, 0.3);
+    border-color: var(--border-secondary);
     box-shadow: var(--shadow-energy);
   }
 }
@@ -172,7 +169,7 @@
 .ui-card--empty {
   border-style: dashed;
   background:
-    radial-gradient(circle at 50% 0%, rgba(93, 214, 255, 0.1), transparent 42%),
+    radial-gradient(circle at 50% 0%, var(--glow-primary), transparent 42%),
     var(--color-surface-subtle);
 }
 
@@ -188,7 +185,7 @@
   display: grid;
   min-width: 0;
   gap: var(--space-2);
-  color: #32485f;
+  color: var(--color-text);
   font-size: 0.95rem;
   font-weight: var(--font-weight-extra-bold);
 }
@@ -224,9 +221,9 @@
   width: 100%;
   min-width: 0;
   padding: 13px 14px;
-  border: 1px solid #cbd9e8;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: #f9fbfe;
+  background: var(--color-surface);
   color: var(--color-ink);
   font: inherit;
   transition: var(--transition-colors), box-shadow var(--duration-normal);
@@ -273,7 +270,7 @@
   appearance: none;
   border: 0;
   border-radius: var(--radius-pill);
-  background: #aab8c6;
+  background: var(--text-disabled);
   cursor: pointer;
   transition: background var(--duration-normal);
 }
@@ -320,25 +317,25 @@
 }
 
 .ui-alert--success {
-  border-color: rgba(34, 197, 94, 0.22);
+  border-color: color-mix(in srgb, var(--color-success) 28%, transparent);
   background: var(--color-success-surface);
   color: var(--color-success);
 }
 
 .ui-alert--error {
-  border-color: rgba(220, 38, 38, 0.18);
+  border-color: color-mix(in srgb, var(--color-danger) 28%, transparent);
   background: var(--color-danger-surface);
   color: var(--color-danger);
 }
 
 .ui-alert--warning {
-  border-color: rgba(138, 90, 0, 0.18);
+  border-color: color-mix(in srgb, var(--color-warning) 28%, transparent);
   background: var(--color-warning-surface);
   color: var(--color-warning);
 }
 
 .ui-alert--info {
-  border-color: rgba(29, 87, 145, 0.18);
+  border-color: color-mix(in srgb, var(--color-info) 28%, transparent);
   background: var(--color-info-surface);
   color: var(--color-info);
 }
@@ -379,17 +376,17 @@
 }
 
 .ui-badge--success {
-  background: #dcfce7;
+  background: var(--color-success-surface);
   color: var(--color-success);
 }
 
 .ui-badge--warning {
-  background: #fff1cc;
+  background: var(--color-warning-surface);
   color: var(--color-warning);
 }
 
 .ui-badge--danger {
-  background: #ffe4e1;
+  background: var(--color-danger-surface);
   color: var(--color-danger);
 }
 
@@ -404,16 +401,16 @@
 }
 
 .ui-badge--champion {
-  border-color: var(--arena-border-gold);
-  background: rgba(246, 196, 83, 0.12);
-  color: var(--arena-gold);
-  box-shadow: 0 0 22px var(--arena-glow-gold);
+  border-color: color-mix(in srgb, var(--accent-prestige) 48%, transparent);
+  background: var(--accent-prestige-soft);
+  color: var(--accent-prestige);
+  box-shadow: var(--elevation-card);
 }
 
 .ui-badge--energy {
-  border-color: var(--arena-border-teal);
-  background: rgba(17, 199, 179, 0.11);
-  color: var(--arena-aqua);
+  border-color: var(--border-primary);
+  background: var(--surface-interactive);
+  color: var(--accent-primary);
 }
 
 .ui-progress {
@@ -421,7 +418,7 @@
   width: 100%;
   height: 8px;
   border-radius: var(--radius-pill);
-  background: #dbe6f2;
+  background: var(--surface-soft);
 }
 
 .ui-progress__bar {
@@ -448,7 +445,7 @@
   width: 46px;
   height: 46px;
   place-items: center;
-  border: 1px solid rgba(29, 87, 145, 0.18);
+  border: 1px solid var(--border-secondary);
   border-radius: 16px;
   background: var(--color-energy-soft);
   color: var(--color-brand-800);
@@ -465,11 +462,11 @@
   width: 48px;
   height: 48px;
   place-items: center;
-  border: 1px solid var(--arena-border-teal);
+  border: 1px solid var(--border-primary);
   border-radius: 16px;
-  background: rgba(53, 216, 230, 0.1);
-  color: var(--arena-aqua);
-  box-shadow: 0 0 24px var(--arena-glow-aqua);
+  background: var(--surface-interactive);
+  color: var(--accent-primary);
+  box-shadow: var(--elevation-card);
 }
 
 .ui-empty-state__icon .sidebar-svg-icon {
@@ -481,7 +478,7 @@
 .dashboard-shell .ui-card {
   border-color: var(--color-border-subtle);
   background:
-    linear-gradient(135deg, rgba(53, 216, 230, 0.045), transparent 34%),
+    linear-gradient(135deg, var(--glow-primary), transparent 34%),
     var(--color-surface);
   color: var(--color-text);
   box-shadow: var(--shadow-md);
@@ -490,13 +487,13 @@
 .dashboard-shell .ui-card--information,
 .dashboard-shell .ui-card--empty {
   background:
-    radial-gradient(circle at 50% 0%, rgba(53, 216, 230, 0.08), transparent 44%),
+    radial-gradient(circle at 50% 0%, var(--glow-primary), transparent 44%),
     var(--color-surface-subtle);
 }
 
 .dashboard-shell :is(.ui-input, .ui-select, .ui-textarea) {
   border-color: var(--color-border);
-  background: rgba(7, 20, 38, 0.72);
+  background: color-mix(in srgb, var(--app-background) 72%, transparent);
   color: var(--color-text);
   color-scheme: dark;
 }
@@ -517,17 +514,17 @@
 }
 
 .dashboard-shell .ui-badge--success {
-  background: rgba(50, 213, 131, 0.12);
+  background: var(--color-success-surface);
   color: var(--arena-victory);
 }
 
 .dashboard-shell .ui-badge--warning {
-  background: rgba(255, 159, 67, 0.12);
+  background: var(--color-warning-surface);
   color: var(--arena-warning);
 }
 
 .dashboard-shell .ui-badge--danger {
-  background: rgba(255, 92, 112, 0.12);
+  background: var(--color-danger-surface);
   color: var(--arena-danger);
 }
 
@@ -536,14 +533,14 @@ html[data-theme] .ui-button--primary {
   border-color: var(--border-primary);
   background: var(--gradient-primary);
   color: var(--text-on-accent);
-  box-shadow: 0 14px 34px var(--glow-primary);
+  box-shadow: var(--elevation-card);
 }
 
 html[data-theme] .ui-button--challenge {
   border-color: var(--border-orange);
   background: var(--gradient-orange);
-  color: #ffffff;
-  box-shadow: 0 14px 34px var(--glow-orange);
+  color: var(--text-on-accent);
+  box-shadow: var(--elevation-card);
 }
 
 html[data-theme] .ui-button--secondary {
@@ -602,7 +599,7 @@ html[data-theme] .ui-badge--info {
   place-items: center;
   overflow-y: auto;
   padding: var(--space-6);
-  background: rgba(8, 24, 42, 0.46);
+  background: color-mix(in srgb, var(--app-background) 72%, transparent);
   z-index: var(--z-modal);
 }
 
@@ -615,7 +612,7 @@ html[data-theme] .ui-badge--info {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-3xl);
   background: var(--color-surface);
-  box-shadow: 0 24px 60px rgba(17, 34, 51, 0.18);
+  box-shadow: var(--elevation-featured);
 }
 
 .ui-modal--sm {
@@ -628,15 +625,15 @@ html[data-theme] .ui-badge--info {
 
 .ui-modal--danger,
 .ui-modal--error {
-  border-color: rgba(180, 35, 24, 0.28);
+  border-color: color-mix(in srgb, var(--color-danger) 38%, transparent);
 }
 
 .ui-modal--success {
-  border-color: rgba(34, 197, 94, 0.28);
+  border-color: color-mix(in srgb, var(--color-success) 38%, transparent);
 }
 
 .ui-modal--warning {
-  border-color: rgba(138, 90, 0, 0.28);
+  border-color: color-mix(in srgb, var(--color-warning) 38%, transparent);
 }
 
 .ui-modal__header,
