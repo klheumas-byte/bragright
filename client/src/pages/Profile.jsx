@@ -3,7 +3,18 @@ import { Link, useNavigate } from "react-router-dom";
 import ActivityList from "../components/ActivityList";
 import ActivitySkeleton from "../components/ActivitySkeleton";
 import CompetitiveSummary from "../components/CompetitiveSummary";
-import CompetitiveBadge from "../components/CompetitiveBadge";
+import {
+  PerformanceInsights,
+  PlayerGoalCard,
+  RecentForm,
+  RivalryCard,
+} from "../components/CompetitiveIntelligence";
+import {
+  buildPerformanceInsights,
+  calculateHeadToHead,
+  getNextCompetitiveGoal,
+  getRecentForm,
+} from "../components/competitiveIntelligenceViewModel";
 import ErrorState from "../components/ErrorState";
 import ProfileAvatar from "../components/ProfileAvatar";
 import ProfileIdentityHeader from "../components/ProfileIdentityHeader";
@@ -58,6 +69,7 @@ export default function Profile() {
   const [ranking, setRanking] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  const [hasLoadedProfile, setHasLoadedProfile] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [matches, setMatches] = useState([]);
   const [matchPagination, setMatchPagination] = useState({
@@ -114,6 +126,15 @@ export default function Profile() {
     () => buildOwnerCompetitiveStats(profile, ranking),
     [profile, ranking]
   );
+  const profileIntelligence = useMemo(() => {
+    const recent = profile.overview.recent_summary;
+    return {
+      form: getRecentForm(recent, 5),
+      insights: buildPerformanceInsights({ matches: recent, summary: profile.overview }),
+      goal: getNextCompetitiveGoal({ summary: profile.overview, ranking, actions: [] }),
+      rivalry: calculateHeadToHead(recent),
+    };
+  }, [profile.overview, ranking]);
 
   async function loadProfile({ forceRefresh = false } = {}) {
     const requestId = ++requestIdsRef.current.profile;
@@ -130,9 +151,10 @@ export default function Profile() {
         username: nextProfile.username,
         image: nextProfile.profile_image,
       });
+      setHasLoadedProfile(true);
     } catch (error) {
       if (!isCurrentRequest("profile", requestId)) return;
-      setProfile(normalizeOwnerProfile(null, authUser));
+      if (!hasLoadedProfile) setProfile(normalizeOwnerProfile(null, authUser));
       setProfileError(error.message || "Profile could not be loaded.");
     } finally {
       if (isCurrentRequest("profile", requestId)) {
@@ -190,7 +212,7 @@ export default function Profile() {
       setHasLoadedMatches(true);
     } catch (error) {
       if (!isCurrentRequest("matches", requestId)) return;
-      setMatches([]);
+      if (!hasLoadedMatches) setMatches([]);
       setMatchesError(error.message || "Match history could not be loaded.");
     } finally {
       if (isCurrentRequest("matches", requestId)) {
@@ -216,7 +238,7 @@ export default function Profile() {
       setHasLoadedActivity(true);
     } catch (error) {
       if (!isCurrentRequest("activity", requestId)) return;
-      setActivity([]);
+      if (!hasLoadedActivity) setActivity([]);
       setActivityError(error.message || "Activity could not be loaded.");
     } finally {
       if (isCurrentRequest("activity", requestId)) {
@@ -337,9 +359,10 @@ export default function Profile() {
       <ProfileIdentityHeader
         name={profile.username || "BragRight Player"}
         image={profile.profile_image}
+        player={{ ...profile, rank: ranking?.rank, points: ranking?.points }}
         subtitle={profile.email}
         label="Your player identity"
-        isLoading={isLoadingProfile}
+        isLoading={isLoadingProfile && !hasLoadedProfile}
         loader={<SectionSkeleton lines={6} />}
         badges={
           <>
@@ -347,8 +370,6 @@ export default function Profile() {
               {profile.status}
             </Badge>
             <Badge tone="neutral">{profile.role}</Badge>
-            {ranking ? <CompetitiveBadge kind="rank" value={ranking.rank} /> : null}
-            {ranking ? <CompetitiveBadge kind="points" value={ranking.points} /> : null}
           </>
         }
         metadata={[
@@ -517,12 +538,33 @@ export default function Profile() {
                 title="Competitive summary"
                 description="Dashboard-aligned backend statistics, with confirmed leaderboard context where available."
               >
-                {isLoadingProfile ? (
+                {isLoadingProfile && !hasLoadedProfile ? (
                   <SectionLoader lines={5} message="Loading profile statistics..." />
                 ) : (
                   <CompetitiveSummary stats={stats} />
                 )}
               </PageSection>
+
+              <div className="profile-intelligence-grid">
+                <PageSection title="Recent Form" description="Confirmed results only, newest first.">
+                  <RecentForm items={profileIntelligence.form} emptyAction={() => navigate("/dashboard/submit-match")} />
+                </PageSection>
+                {profileIntelligence.goal ? (
+                  <PageSection title="Personal Goal" description="A private, presentation-only target based on your record.">
+                    <PlayerGoalCard goal={profileIntelligence.goal} onAction={(goal) => navigate(goal.actionPath)} />
+                  </PageSection>
+                ) : null}
+              </div>
+              {profileIntelligence.insights.length ? (
+                <PageSection title="Performance Insights" description="Deterministic observations from confirmed results.">
+                  <PerformanceInsights insights={profileIntelligence.insights} />
+                </PageSection>
+              ) : null}
+              {profileIntelligence.rivalry ? (
+                <PageSection title="Rivalry" description="Your most-played opponent across at least three confirmed matches.">
+                  <RivalryCard rivalry={profileIntelligence.rivalry} currentPlayerId={profile.id} />
+                </PageSection>
+              ) : null}
 
               <PageSection
                 title="Recent results"
@@ -569,10 +611,11 @@ export default function Profile() {
                 }
                 retryLabel="Retry match history"
               />
-              {isLoadingMatches ? (
+              {isLoadingMatches && !hasLoadedMatches ? (
                 <SectionLoader lines={6} message="Loading match history..." />
-              ) : matchesError ? null : matches.length ? (
-                <>
+              ) : matches.length ? (
+                <div className={isLoadingMatches ? "loading-region--refreshing" : ""} aria-busy={isLoadingMatches || undefined}>
+                  {isLoadingMatches ? <span className="inline-loading-status" role="status">Refreshing match history…</span> : null}
                   <ProfileMatchList matches={matches} profileName="You" />
                   {matchPagination.pages > 1 ? (
                     <nav
@@ -604,8 +647,8 @@ export default function Profile() {
                       </Button>
                     </nav>
                   ) : null}
-                </>
-              ) : (
+                </div>
+              ) : matchesError ? null : (
                 <Card variant="empty" className="dashboard-panel">
                   <EmptyState
                     title="No battles recorded"
@@ -629,11 +672,14 @@ export default function Profile() {
                 onRetry={() => loadActivity({ forceRefresh: true })}
                 retryLabel="Retry activity"
               />
-              {isLoadingActivity ? (
+              {isLoadingActivity && !hasLoadedActivity ? (
                 <ActivitySkeleton count={5} message="Loading profile activity" />
-              ) : activityError ? null : activity.length ? (
-                <ActivityList activities={activity} compact label="Recent profile-owner activity" />
-              ) : (
+              ) : activity.length ? (
+                <div className={isLoadingActivity ? "loading-region--refreshing" : ""} aria-busy={isLoadingActivity || undefined}>
+                  {isLoadingActivity ? <span className="inline-loading-status" role="status">Refreshing profile activity…</span> : null}
+                  <ActivityList activities={activity} compact label="Recent profile-owner activity" />
+                </div>
+              ) : activityError ? null : (
                 <Card variant="empty" className="dashboard-panel">
                   <EmptyState
                     title="Your competitive story starts here"

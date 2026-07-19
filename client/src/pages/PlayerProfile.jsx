@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import CompetitiveSummary from "../components/CompetitiveSummary";
-import CompetitiveBadge from "../components/CompetitiveBadge";
+import { PerformanceInsights, RecentForm, RivalryCard } from "../components/CompetitiveIntelligence";
+import { buildPerformanceInsights, calculateHeadToHead, getRecentForm } from "../components/competitiveIntelligenceViewModel";
 import ErrorState from "../components/ErrorState";
 import ProfileIdentityHeader from "../components/ProfileIdentityHeader";
 import ProfileMatchList from "../components/ProfileMatchList";
@@ -70,6 +71,14 @@ export default function PlayerProfile() {
   const isOwner = Boolean(user?.id && user.id === profile?.id);
   const showChallenge = canChallengePlayer(user, profile);
   const stats = profile ? buildPublicCompetitiveStats(profile) : [];
+  const publicIntelligence = useMemo(() => {
+    const recent = profile?.recent_confirmed_matches || [];
+    return {
+      form: getRecentForm(recent, 5),
+      insights: buildPerformanceInsights({ matches: recent, summary: profile }),
+      rivalry: calculateHeadToHead(recent),
+    };
+  }, [profile]);
 
   return (
     <DashboardLayout
@@ -94,12 +103,11 @@ export default function PlayerProfile() {
           <ProfileIdentityHeader
             name={profile.username}
             image={profile.profile_image}
+            player={profile}
             subtitle="Public competitive profile"
             label="Player identity"
             badges={
               <>
-                <CompetitiveBadge kind="rank" value={profile.rank} />
-                <CompetitiveBadge kind="points" value={profile.points} />
                 <Badge tone={profile.status === "active" ? "success" : "neutral"}>
                   {profile.status}
                 </Badge>
@@ -158,6 +166,22 @@ export default function PlayerProfile() {
               label={`${profile.username} competitive statistics`}
             />
           </PageSection>
+
+          <PageSection title="Recent Form" description="Public confirmed results only, newest first.">
+            <RecentForm items={publicIntelligence.form} />
+          </PageSection>
+
+          {publicIntelligence.insights.length ? (
+            <PageSection title="Performance Insights" description="Deterministic observations from public confirmed results.">
+              <PerformanceInsights insights={publicIntelligence.insights.map((item) => ({ ...item, path: "" }))} />
+            </PageSection>
+          ) : null}
+
+          {publicIntelligence.rivalry ? (
+            <PageSection title="Rivalry" description="Most-played opponent across at least three public confirmed matches.">
+              <RivalryCard rivalry={publicIntelligence.rivalry} currentPlayerId={profile.id} />
+            </PageSection>
+          ) : null}
 
           <PageSection
             title="Recent match history"

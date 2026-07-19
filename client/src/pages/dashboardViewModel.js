@@ -34,7 +34,7 @@ export function normalizeDashboardSummary(summary) {
     disputed_matches: toNonNegativeNumber(summary?.disputed_matches),
     actions_required: toNonNegativeNumber(summary?.actions_required),
     recent_summary: Array.isArray(summary?.recent_summary)
-      ? summary.recent_summary.slice(0, 3)
+      ? summary.recent_summary.slice(0, 5)
       : [],
   };
 }

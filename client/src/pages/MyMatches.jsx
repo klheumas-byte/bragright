@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import MatchCard from "../components/MatchCard";
+import RichMatchCard from "../components/RichMatchCard";
+import MatchCenter from "../components/MatchCenter";
 import CompetitiveSummary from "../components/CompetitiveSummary";
 import {
   MatchControlsSkeleton,
@@ -8,7 +9,6 @@ import {
   MatchListSkeleton,
   MatchSummarySkeleton,
 } from "../components/MatchSkeletons";
-import MatchTimeline from "../components/MatchTimeline";
 import ErrorState from "../components/ErrorState";
 import SectionSkeleton from "../components/SectionSkeleton";
 import SuccessAlert from "../components/SuccessAlert";
@@ -34,6 +34,7 @@ import {
   declineMatch,
   disputeMatch,
   getDashboardActions,
+  getHeadToHead,
   getMatchDetail,
   getMyMatches,
   submitMatchResult,
@@ -66,12 +67,17 @@ export default function MyMatches() {
   const { trackLoading } = useLoading();
   const selectedMatchId = new URLSearchParams(location.search).get("matchId") || "";
   const requestIdRef = useRef(0);
+  const rivalryRequestIdRef = useRef(0);
+  const rivalryCacheRef = useRef(new Map());
   const [activeView, setActiveView] = useState("attention");
   const [matches, setMatches] = useState([]);
   const [viewCounts, setViewCounts] = useState({});
   const [pagination, setPagination] = useState(EMPTY_PAGINATION);
   const [actions, setActions] = useState([]);
   const [selectedMatch, setSelectedMatch] = useState(null);
+  const [rivalry, setRivalry] = useState(null);
+  const [rivalryError, setRivalryError] = useState("");
+  const [isRivalryLoading, setIsRivalryLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
@@ -98,10 +104,23 @@ export default function MyMatches() {
     if (!selectedMatchId) {
       setSelectedMatch(null);
       setDetailError("");
+      setRivalry(null);
+      setRivalryError("");
       return;
     }
     loadSelectedMatch(selectedMatchId);
   }, [selectedMatchId]);
+
+  useEffect(() => {
+    const playerOneId = selectedMatch?.player_one_id;
+    const playerTwoId = selectedMatch?.player_two_id;
+    if (!playerOneId || !playerTwoId || playerOneId === playerTwoId) {
+      setRivalry(null);
+      setRivalryError("");
+      return;
+    }
+    loadRivalry(playerOneId, playerTwoId);
+  }, [selectedMatch?.player_one_id, selectedMatch?.player_two_id]);
 
   async function loadMatches({ forceRefresh = false } = {}) {
     const requestId = ++requestIdRef.current;
@@ -137,7 +156,6 @@ export default function MyMatches() {
     } catch (error) {
       if (requestId === requestIdRef.current) {
         setListError(getMatchErrorMessage(error, "Your matches could not be loaded."));
-        setMatches([]);
       }
     } finally {
       if (requestId === requestIdRef.current) {
@@ -169,6 +187,44 @@ export default function MyMatches() {
       setDetailError(getMatchErrorMessage(error, "The selected match could not be loaded."));
     } finally {
       setIsDetailLoading(false);
+    }
+  }
+
+  async function loadRivalry(playerOneId, playerTwoId, { forceRefresh = false } = {}) {
+    const requestId = ++rivalryRequestIdRef.current;
+    const cacheKey = `${playerOneId}:${playerTwoId}`;
+    const cachedEntry = rivalryCacheRef.current.get(cacheKey);
+    if (!forceRefresh && cachedEntry?.data) {
+      setRivalry(cachedEntry.data);
+      setRivalryError("");
+      setIsRivalryLoading(false);
+      return;
+    }
+    setIsRivalryLoading(true);
+    setRivalryError("");
+    const request = !forceRefresh && cachedEntry?.request
+      ? cachedEntry.request
+      : getHeadToHead(playerOneId, playerTwoId);
+    rivalryCacheRef.current.set(cacheKey, { request });
+    try {
+      const response = await request;
+      const data = response?.data || null;
+      rivalryCacheRef.current.set(cacheKey, { data });
+      if (requestId === rivalryRequestIdRef.current) {
+        setRivalry(data);
+      }
+    } catch (error) {
+      if (rivalryCacheRef.current.get(cacheKey)?.request === request) {
+        rivalryCacheRef.current.delete(cacheKey);
+      }
+      if (requestId === rivalryRequestIdRef.current) {
+        setRivalry(null);
+        setRivalryError(getMatchErrorMessage(error, "Player comparison could not be loaded."));
+      }
+    } finally {
+      if (requestId === rivalryRequestIdRef.current) {
+        setIsRivalryLoading(false);
+      }
     }
   }
 
@@ -248,6 +304,9 @@ export default function MyMatches() {
         loadActions({ forceRefresh: true }),
         selectedMatchId
           ? loadSelectedMatch(selectedMatchId, { forceRefresh: true })
+          : Promise.resolve(),
+        selectedMatch?.player_one_id && selectedMatch?.player_two_id
+          ? loadRivalry(selectedMatch.player_one_id, selectedMatch.player_two_id, { forceRefresh: true })
           : Promise.resolve(),
       ]);
     } catch (error) {
@@ -379,12 +438,15 @@ export default function MyMatches() {
               retryLabel="Retry match details"
             />
           ) : selectedMatch ? (
-            <Card variant="information" className="match-detail-card">
-              <MatchCard
+            <MatchCenter
                 match={selectedMatch}
                 currentUserId={user?.id}
-                isSelected
-                actions={
+                currentUserName={user?.username}
+                comparison={rivalry}
+                comparisonLoading={isRivalryLoading}
+                comparisonError={rivalryError}
+                onRetryComparison={() => loadRivalry(selectedMatch.player_one_id, selectedMatch.player_two_id, { forceRefresh: true })}
+                actions={hasAvailableMatchActions(selectedMatch) ? (
                   <MatchActions
                     match={selectedMatch}
                     user={user}
@@ -397,10 +459,8 @@ export default function MyMatches() {
                     onProofChange={selectProof}
                     onAction={requestAction}
                   />
-                }
+                ) : null}
               />
-              <MatchTimeline match={selectedMatch} />
-            </Card>
           ) : null}
         </PageSection>
       ) : null}
@@ -452,19 +512,22 @@ export default function MyMatches() {
           retryLabel="Retry matches"
         />
 
-        {isLoading || isTransitioning ? (
+        {isLoading ? (
           <MatchListSkeleton
             rows={Math.min(PAGE_SIZE, 5)}
             label={`Loading ${activeViewConfig.label.toLowerCase()}`}
           />
         ) : matches.length ? (
-          <div className="match-list">
+          <div className={`match-list${isTransitioning ? " loading-region--refreshing" : ""}`} aria-busy={isTransitioning || undefined}>
             {matches.map((match) => (
-              <MatchCard
+              <RichMatchCard
                 key={match.id}
                 match={match}
                 currentUserId={user?.id}
+                currentUserName={user?.username}
+                variant="full"
                 isSelected={match.id === selectedMatchId}
+                detailPath={`/dashboard/matches?matchId=${encodeURIComponent(match.id)}`}
                 actions={
                   <MatchActions
                     match={match}
@@ -493,12 +556,12 @@ export default function MyMatches() {
           </Card>
         )}
 
-        {isTransitioning ? null : pagination.pages > 1 ? (
-          <nav className="match-pagination" aria-label="Match pages">
+        {pagination.pages > 1 ? (
+          <nav className="match-pagination" aria-label="Match pages" aria-busy={isTransitioning || undefined}>
             <Button
               variant="secondary"
               size="sm"
-              disabled={!pagination.has_previous}
+              disabled={isTransitioning || !pagination.has_previous}
               onClick={() => setPagination((current) => ({ ...current, page: current.page - 1 }))}
             >
               Previous
@@ -507,7 +570,7 @@ export default function MyMatches() {
             <Button
               variant="secondary"
               size="sm"
-              disabled={!pagination.has_next}
+              disabled={isTransitioning || !pagination.has_next}
               onClick={() => setPagination((current) => ({ ...current, page: current.page + 1 }))}
             >
               Next
@@ -734,6 +797,17 @@ function StatusPill({ label, value, tone, icon }) {
       <span><SidebarIcon name={icon} decorative /> {label}</span>
       <strong>{value}</strong>
     </div>
+  );
+}
+
+function hasAvailableMatchActions(match) {
+  return Boolean(
+    match?.can_accept ||
+    match?.can_decline ||
+    match?.can_submit_result ||
+    match?.can_confirm ||
+    match?.can_dispute ||
+    match?.can_cancel
   );
 }
 

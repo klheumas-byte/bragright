@@ -19,7 +19,7 @@ const Button = forwardRef(function Button(
     variant = "primary",
     size = "md",
     isLoading = false,
-    loadingText = "Loading...",
+    loadingText = "Working…",
     iconOnly = false,
     disabled = false,
     type,
@@ -43,6 +43,7 @@ const Button = forwardRef(function Button(
     ref,
     className: classes,
     "aria-busy": isLoading || undefined,
+    "aria-label": isLoading ? loadingText : props["aria-label"],
   };
 
   if (Component === "button") {
@@ -51,18 +52,20 @@ const Button = forwardRef(function Button(
   } else if (disabled || isLoading) {
     componentProps["aria-disabled"] = "true";
     componentProps.tabIndex = -1;
+    componentProps.onClick = (event) => event.preventDefault();
   }
 
   return (
     <Component {...componentProps}>
+      <span className="ui-button__content" aria-hidden={isLoading || undefined}>
+        {children}
+      </span>
       {isLoading ? (
-        <>
+        <span className="ui-button__loading" role="status">
           <span className="ui-button__spinner" aria-hidden="true" />
           <span>{loadingText}</span>
-        </>
-      ) : (
-        children
-      )}
+        </span>
+      ) : null}
     </Component>
   );
 });

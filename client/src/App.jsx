@@ -1,9 +1,11 @@
 import { Suspense, lazy } from "react";
 import { Route, Routes } from "react-router-dom";
-import GlobalLoadingBar from "./components/GlobalLoadingBar";
+import { AuthPageSkeleton } from "./components/LoadingSkeletons";
 import ProtectedRoute from "./components/ProtectedRoute";
-import SectionLoader from "./components/SectionLoader";
+import RouteProgress from "./components/RouteProgress";
+import { DashboardLayoutProvider, DashboardShell } from "./layouts/DashboardLayout";
 import MainLayout from "./layouts/MainLayout";
+import { NotificationProvider } from "./notifications/NotificationCenter";
 
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const AdminActivity = lazy(() => import("./pages/AdminActivity"));
@@ -27,9 +29,8 @@ const SubmitMatch = lazy(() => import("./pages/SubmitMatch"));
 export default function App() {
   return (
     <>
-      <GlobalLoadingBar />
-      <Suspense fallback={<SectionLoader lines={6} message="Loading page..." />}>
-        <Routes>
+      <RouteProgress />
+      <Routes>
           <Route path="/" element={<MainLayout />}>
             <Route index element={<Home />} />
             <Route path="login" element={<Login />} />
@@ -37,128 +38,34 @@ export default function App() {
             <Route path="*" element={<NotFound />} />
           </Route>
           <Route
-            path="/leaderboard"
             element={
               <ProtectedRoute>
-                <Leaderboard />
+                <NotificationProvider>
+                  <DashboardLayoutProvider>
+                    <DashboardShell />
+                  </DashboardLayoutProvider>
+                </NotificationProvider>
               </ProtectedRoute>
             }
-          />
-          <Route
-            path="/profile"
-            element={
-              <ProtectedRoute>
-                <Profile />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/players/:playerId"
-            element={
-              <ProtectedRoute>
-                <PlayerProfile />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/activity"
-            element={
-              <ProtectedRoute>
-                <MyActivity />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/head-to-head"
-            element={
-              <ProtectedRoute>
-                <HeadToHead />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/head-to-head/:playerAId/:playerBId"
-            element={
-              <ProtectedRoute>
-                <HeadToHead />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/profile"
-            element={
-              <ProtectedRoute requireAdmin>
-                <AdminProfile />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/dashboard"
-            element={
-              <ProtectedRoute requireAdmin>
-                <AdminDashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/activity"
-            element={
-              <ProtectedRoute requireAdmin>
-                <AdminActivity />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/users"
-            element={
-              <ProtectedRoute requireAdmin>
-                <AdminUsers />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/settings"
-            element={
-              <ProtectedRoute requireAdmin>
-                <AdminSettings />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/disputes"
-            element={
-              <ProtectedRoute requireAdmin>
-                <AdminDisputes />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard/submit-match"
-            element={
-              <ProtectedRoute>
-                <SubmitMatch />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard/matches"
-            element={
-              <ProtectedRoute>
-                <MyMatches />
-              </ProtectedRoute>
-            }
-          />
-          <Route path="*" element={<NotFound />} />
+          >
+            <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/players/:playerId" element={<PlayerProfile />} />
+            <Route path="/activity" element={<MyActivity />} />
+            <Route path="/head-to-head" element={<HeadToHead />} />
+            <Route path="/head-to-head/:playerAId/:playerBId" element={<HeadToHead />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/dashboard/submit-match" element={<SubmitMatch />} />
+            <Route path="/dashboard/matches" element={<MyMatches />} />
+            <Route path="/admin/profile" element={<ProtectedRoute requireAdmin><AdminProfile /></ProtectedRoute>} />
+            <Route path="/admin/dashboard" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
+            <Route path="/admin/activity" element={<ProtectedRoute requireAdmin><AdminActivity /></ProtectedRoute>} />
+            <Route path="/admin/users" element={<ProtectedRoute requireAdmin><AdminUsers /></ProtectedRoute>} />
+            <Route path="/admin/settings" element={<ProtectedRoute requireAdmin><AdminSettings /></ProtectedRoute>} />
+            <Route path="/admin/disputes" element={<ProtectedRoute requireAdmin><AdminDisputes /></ProtectedRoute>} />
+          </Route>
+          <Route path="*" element={<Suspense fallback={<AuthPageSkeleton />}><NotFound /></Suspense>} />
         </Routes>
-      </Suspense>
     </>
   );
 }

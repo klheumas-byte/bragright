@@ -22,6 +22,7 @@ export default function MyActivity() {
   const [pagination, setPagination] = useState(EMPTY_PAGINATION);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const isInitialLoading = isLoading && logs.length === 0;
 
   useEffect(() => {
     loadMyActivity();
@@ -80,18 +81,19 @@ export default function MyActivity() {
         </Card>
 
         <ErrorState message={error} onRetry={() => loadMyActivity({ forceRefresh: true })} retryLabel="Retry activity" />
-        {isLoading ? (
+        {isInitialLoading ? (
           <ActivitySkeleton count={5} message="Loading your activity" />
-        ) : error ? null : logs.length ? (
-          <>
+        ) : logs.length ? (
+          <div className={isLoading ? "loading-region--refreshing" : ""} aria-busy={isLoading || undefined}>
+            {isLoading ? <span className="inline-loading-status" role="status">Refreshing activity…</span> : null}
             <ActivityList activities={logs} />
             <nav className="activity-pagination" aria-label="Activity pagination">
               <Button variant="secondary" size="sm" disabled={!pagination.has_previous} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</Button>
               <span aria-live="polite">Page {pagination.page} of {Math.max(pagination.pages, 1)}</span>
               <Button variant="secondary" size="sm" disabled={!pagination.has_next} onClick={() => setPage((current) => current + 1)}>Next</Button>
             </nav>
-          </>
-        ) : (
+          </div>
+        ) : error ? null : (
           <Card variant="empty" className="dashboard-panel">
             <EmptyState
               title={category === "all" ? "Your competitive story starts here" : "No activity in this category"}

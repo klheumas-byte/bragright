@@ -103,6 +103,7 @@ class Config:
         "None" if IS_PRODUCTION else "Lax",
     )
     AUTH_COOKIE_DOMAIN = _get_setting("AUTH_COOKIE_DOMAIN")
+    AUTH_COOKIE_PARTITIONED = _get_bool_setting("AUTH_COOKIE_PARTITIONED", IS_PRODUCTION)
     INIT_DB_INDEXES_AT_STARTUP = _get_bool_setting(
         "INIT_DB_INDEXES_AT_STARTUP",
         False,

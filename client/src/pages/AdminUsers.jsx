@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import ErrorState from "../components/ErrorState";
+import PlayerIdentity from "../components/PlayerIdentity";
 import SectionLoader from "../components/SectionLoader";
 import SuccessAlert from "../components/SuccessAlert";
 import { Button, Modal } from "../components/ui";
@@ -364,7 +365,13 @@ export default function AdminUsers() {
               {users.map((user) => (
                 <article key={user.id} className="admin-users-row">
                   <div className="admin-users-cell">
-                    <p className="admin-users-primary">{user.username}</p>
+                    <PlayerIdentity
+                      player={user}
+                      variant="admin"
+                      showUsername={false}
+                      showBadges={false}
+                      showPrivateMeta={false}
+                    />
                     <p className="admin-users-secondary">Created {formatDate(user.created_at)}</p>
                   </div>
 
@@ -466,6 +473,7 @@ function normalizeAdminUser(user) {
     id: user?.id || "",
     username: user?.username || "Unknown user",
     email: user?.email || "",
+    profile_image: user?.profile_image || "",
     role: user?.role || "player",
     status,
     is_active: status === "active",

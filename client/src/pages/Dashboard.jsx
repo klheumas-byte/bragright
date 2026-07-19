@@ -1,8 +1,28 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import ActivityList from "../components/ActivityList";
 import ActivitySkeleton from "../components/ActivitySkeleton";
-import CompetitiveBadge from "../components/CompetitiveBadge";
+import {
+  CompetitiveMoments,
+  CompetitivePulse,
+  EngagementNotificationCard,
+  PlayerHighlightGrid,
+} from "../components/EngagementCards";
+import {
+  NextBestAction,
+  PerformanceInsights,
+  PlayerGoalCard,
+  RecentForm,
+  RivalryCard,
+} from "../components/CompetitiveIntelligence";
+import CompetitiveIntelligenceSkeleton from "../components/CompetitiveIntelligenceSkeleton";
+import {
+  CompetitivePulseSkeleton,
+  HighlightGridSkeleton,
+  NotificationListSkeleton,
+} from "../components/EngagementSkeletons";
+import RichMatchCard from "../components/RichMatchCard";
+import PlayerIdentity from "../components/PlayerIdentity";
 import ErrorState from "../components/ErrorState";
 import SectionLoader from "../components/SectionLoader";
 import SectionSkeleton from "../components/SectionSkeleton";
@@ -14,23 +34,32 @@ import { useAuth } from "../context/AuthContext";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
 import {
-  getApiAssetUrl,
   getDashboardSummary,
   getLeaderboard,
   getMyActivity,
 } from "../services/api";
 import {
+  buildCompetitiveMoments,
+  buildCompetitivePulse,
+  buildPlayerHighlights,
+  normalizeEngagementNotifications,
+} from "../components/engagementViewModel";
+import {
+  buildPerformanceInsights,
+  calculateHeadToHead,
+  getNextBestAction,
+  getNextCompetitiveGoal,
+  getPendingPlayerActions,
+  getRecentForm,
+} from "../components/competitiveIntelligenceViewModel";
+import {
   buildRankingContext,
   EMPTY_ACTION_CENTER,
   EMPTY_DASHBOARD_SUMMARY,
-  formatActionType,
-  formatDashboardDate,
-  getMatchStatusTone,
   getPrimaryDashboardAction,
   normalizeActionCenter,
   normalizeDashboardSummary,
 } from "./dashboardViewModel";
-import { getMatchStatusPresentation } from "./matchPresentation";
 
 const quickActions = [
   {
@@ -78,6 +107,7 @@ export default function Dashboard() {
     ranking: true,
     activity: true,
   });
+  const [loaded, setLoaded] = useState({ summary: false, ranking: false, activity: false });
   const [errors, setErrors] = useState({
     summary: "",
     ranking: "",
@@ -115,13 +145,12 @@ export default function Dashboard() {
       setActionCenter(
         normalizeActionCenter(response?.data?.action_center)
       );
+      setLoaded((current) => ({ ...current, summary: true }));
     } catch (error) {
       if (!isCurrentRequest("summary", requestId)) {
         return;
       }
       setSectionError("summary", error.message);
-      setSummary(EMPTY_DASHBOARD_SUMMARY);
-      setActionCenter(EMPTY_ACTION_CENTER);
     } finally {
       if (isCurrentRequest("summary", requestId)) {
         setSectionLoading("summary", false);
@@ -154,12 +183,12 @@ export default function Dashboard() {
           response?.data?.nearby_players
         )
       );
+      setLoaded((current) => ({ ...current, ranking: true }));
     } catch (error) {
       if (!isCurrentRequest("ranking", requestId)) {
         return;
       }
       setSectionError("ranking", error.message);
-      setRanking({ player: null, neighbors: [] });
     } finally {
       if (isCurrentRequest("ranking", requestId)) {
         setSectionLoading("ranking", false);
@@ -184,12 +213,12 @@ export default function Dashboard() {
           ? response.data.logs.slice(0, 5)
           : []
       );
+      setLoaded((current) => ({ ...current, activity: true }));
     } catch (error) {
       if (!isCurrentRequest("activity", requestId)) {
         return;
       }
       setSectionError("activity", error.message);
-      setActivity([]);
     } finally {
       if (isCurrentRequest("activity", requestId)) {
         setSectionLoading("activity", false);
@@ -215,17 +244,57 @@ export default function Dashboard() {
     }
   }
 
-  const primaryAction = getPrimaryDashboardAction(actionCenter);
+  const pendingActions = useMemo(
+    () => getPendingPlayerActions(actionCenter.items),
+    [actionCenter.items]
+  );
+  const primaryAction = getPrimaryDashboardAction({ ...actionCenter, items: pendingActions });
   const primaryDestination = buildActionDestination({
     action_url: primaryAction.path,
     related_match_id: primaryAction.matchId,
   });
   const displayName = user?.username || user?.email || "Player";
-  const avatarImage = user?.profile_image
-    ? getApiAssetUrl(user.profile_image)
-    : "";
-  const avatarInitials = getInitials(displayName);
   const stats = buildStats(summary, ranking.player);
+  const notifications = useMemo(
+    () => normalizeEngagementNotifications(pendingActions),
+    [pendingActions]
+  );
+  const highlights = useMemo(
+    () => buildPlayerHighlights(summary, ranking.player),
+    [ranking.player, summary]
+  );
+  const moments = useMemo(
+    () => buildCompetitiveMoments(summary, ranking.player),
+    [ranking.player, summary]
+  );
+  const pulse = useMemo(
+    () => buildCompetitivePulse({
+      recentMatches: summary.recent_summary,
+      recentActivity: activity,
+      actionsRequired: actionCenter.summary.actions_required,
+    }),
+    [actionCenter.summary.actions_required, activity, summary.recent_summary]
+  );
+  const nextAction = useMemo(
+    () => getNextBestAction(pendingActions),
+    [pendingActions]
+  );
+  const recentForm = useMemo(
+    () => getRecentForm(summary.recent_summary, 5),
+    [summary.recent_summary]
+  );
+  const insights = useMemo(
+    () => buildPerformanceInsights({ matches: summary.recent_summary, summary, actionSummary: actionCenter.summary }),
+    [actionCenter.summary, summary]
+  );
+  const goal = useMemo(
+    () => getNextCompetitiveGoal({ summary, ranking: ranking.player, actions: pendingActions }),
+    [pendingActions, ranking.player, summary]
+  );
+  const rivalry = useMemo(
+    () => calculateHeadToHead(summary.recent_summary),
+    [summary.recent_summary]
+  );
 
   return (
     <DashboardLayout
@@ -241,15 +310,15 @@ export default function Dashboard() {
       >
         <TrophyWatermark className="arena-hero-watermark" />
         <div className="dashboard-welcome-identity">
-          <div className="dashboard-welcome-avatar" aria-hidden="true">
-            {avatarImage ? (
-              <img src={avatarImage} alt="" />
-            ) : (
-              avatarInitials
-            )}
-          </div>
           <div>
             <p className="section-label">Player dashboard</p>
+            <PlayerIdentity
+              player={{ ...user, rank: ranking.player?.rank, points: ranking.player?.points }}
+              variant="compact"
+              showUsername={false}
+              isCurrent
+              className="dashboard-player-identity"
+            />
             <h2
               className="feature-hero-title dashboard-welcome-title"
               id="dashboard-welcome-title"
@@ -260,15 +329,9 @@ export default function Dashboard() {
               {getWelcomeMessage({
                 isLoading: loading.summary,
                 error: errors.summary,
-                actionCount: actionCenter.items.length,
+                actionCount: pendingActions.length,
               })}
             </p>
-            {!loading.ranking && ranking.player ? (
-              <div className="dashboard-welcome-meta" aria-label="Current ranking">
-                <CompetitiveBadge kind="rank" value={ranking.player.rank} />
-                <CompetitiveBadge kind="points" value={ranking.player.points} />
-              </div>
-            ) : null}
           </div>
         </div>
 
@@ -323,7 +386,7 @@ export default function Dashboard() {
       </PageSection>
 
       <PageSection
-        title="Needs your attention"
+        title="Action Required"
         description="Match responsibilities and notifications that require a decision."
         actions={
           !loading.summary && !errors.summary ? (
@@ -331,8 +394,8 @@ export default function Dashboard() {
               tone={actionCenter.items.length ? "warning" : "success"}
               aria-live="polite"
             >
-              {actionCenter.items.length
-                ? `${actionCenter.items.length} to review`
+              {pendingActions.length
+                ? `${pendingActions.length} to review`
                 : "All caught up"}
             </Badge>
           ) : null
@@ -343,43 +406,20 @@ export default function Dashboard() {
           onRetry={() => loadDashboardSummary({ forceRefresh: true })}
           retryLabel="Retry dashboard"
         />
+        {loading.summary && loaded.summary ? <span className="inline-loading-status" role="status">Refreshing dashboard…</span> : null}
 
-        {loading.summary ? (
-          <SectionLoader
-            lines={4}
-            message="Loading your match responsibilities..."
-          />
-        ) : errors.summary ? null : actionCenter.items.length ? (
-          <Card
-            variant="dashboard"
-            className="dashboard-panel dashboard-attention-panel"
-          >
-            <div className="dashboard-review-stack">
-              {actionCenter.items.map((item) => (
-                <article key={item.id} className="review-item-card">
-                  <div className="review-item-copy">
-                    <div className="dashboard-item-labels">
-                      <Badge tone={getActionTone(item.type)}>
-                        {formatActionType(item.type)}
-                      </Badge>
-                      <span className="review-item-time">
-                        {formatDashboardDate(item.created_at)}
-                      </span>
-                    </div>
-                    <h3 className="review-item-title">{item.message}</h3>
-                  </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="inline-action-link"
-                    onClick={() => navigate(buildActionDestination(item))}
-                  >
-                    {item.action_label || "Review now"}
-                  </Button>
-                </article>
-              ))}
-            </div>
-          </Card>
+        {loading.summary && !loaded.summary ? (
+          <NotificationListSkeleton count={3} />
+        ) : errors.summary && !loaded.summary ? null : pendingActions.length ? (
+          <div className="engagement-notification-list">
+            {notifications.map((notification) => (
+              <EngagementNotificationCard
+                key={notification.id}
+                notification={notification}
+                onAction={(item) => navigate(buildActionDestination({ action_path: item.actionPath, related_match_id: item.matchId }))}
+              />
+            ))}
+          </div>
         ) : (
           <Card variant="empty" className="dashboard-panel">
             <EmptyState
@@ -387,6 +427,17 @@ export default function Dashboard() {
               description="New match requests, result confirmations, and dispute updates will appear here."
             />
           </Card>
+        )}
+      </PageSection>
+
+      <PageSection
+        title="Next Best Action"
+        description="The highest-priority supported step in your current competitive workflow."
+      >
+        {loading.summary && !loaded.summary ? (
+          <CompetitiveIntelligenceSkeleton variant="action" />
+        ) : errors.summary && !loaded.summary ? null : (
+          <NextBestAction action={nextAction} onAction={(item) => navigate(buildActionDestination({ action_path: item.actionPath, related_match_id: item.matchId }))} />
         )}
       </PageSection>
 
@@ -403,7 +454,7 @@ export default function Dashboard() {
           className="stat-grid stat-grid-wide"
           aria-label="Player performance metrics"
         >
-          {loading.summary
+          {loading.summary && !loaded.summary
             ? stats.map((stat) => (
                 <Card
                   as="article"
@@ -415,7 +466,7 @@ export default function Dashboard() {
                   <SectionSkeleton lines={3} />
                 </Card>
               ))
-            : errors.summary
+            : errors.summary && !loaded.summary
               ? null
               : stats.map((stat) => (
                 <StatCard
@@ -429,6 +480,57 @@ export default function Dashboard() {
                 />
               ))}
         </section>
+      </PageSection>
+
+      <div className="dashboard-insight-grid competitive-intelligence-grid">
+        <PageSection title="Recent Form" description="Newest-first results from confirmed matches only.">
+          {loading.summary && !loaded.summary ? <CompetitiveIntelligenceSkeleton variant="form" /> : (
+            <RecentForm items={recentForm} emptyAction={() => navigate("/dashboard/submit-match")} />
+          )}
+        </PageSection>
+
+        <PageSection title="Personal Goal" description="A presentation-only target based on your current record.">
+          {loading.summary && !loaded.summary ? <CompetitiveIntelligenceSkeleton variant="goal" /> : goal ? (
+            <PlayerGoalCard goal={goal} onAction={(item) => navigate(item.actionPath)} />
+          ) : (
+            <Card variant="empty"><EmptyState title="No target needed right now" description="Your next target will appear when your record or standing supports one." /></Card>
+          )}
+        </PageSection>
+      </div>
+
+      {insights.length ? (
+        <PageSection title="Performance Insights" description="Deterministic observations from your confirmed record and pending actions.">
+          <PerformanceInsights insights={insights} />
+        </PageSection>
+      ) : null}
+
+      {rivalry ? (
+        <PageSection title="Rivalry" description="Your most-played opponent across at least three confirmed matches.">
+          <RivalryCard rivalry={rivalry} currentPlayerId={user?.id} />
+        </PageSection>
+      ) : null}
+
+      <PageSection
+        title="Competitive highlights"
+        description="Real milestones and standing drawn from your confirmed record."
+      >
+        {loading.summary || loading.ranking ? (
+          <HighlightGridSkeleton />
+        ) : highlights.length ? (
+          <>
+            <PlayerHighlightGrid highlights={highlights} />
+            <CompetitiveMoments moments={moments} />
+          </>
+        ) : (
+          <Card variant="empty"><EmptyState title="Highlights are waiting" description="Complete a confirmed match to begin building your competitive highlights." actionLabel="Challenge a player" onAction={() => navigate("/dashboard/submit-match")} /></Card>
+        )}
+      </PageSection>
+
+      <PageSection
+        title="Competitive pulse"
+        description="Recent competitive activity supported by your existing match and event data."
+      >
+        {loading.summary || loading.activity ? <CompetitivePulseSkeleton /> : <CompetitivePulse items={pulse} />}
       </PageSection>
 
       <div className="dashboard-insight-grid">
@@ -446,42 +548,21 @@ export default function Dashboard() {
             onRetry={() => loadDashboardSummary({ forceRefresh: true })}
             retryLabel="Retry recent matches"
           />
-          {loading.summary ? (
+          {loading.summary && !loaded.summary ? (
             <SectionLoader lines={5} message="Loading recent matches..." />
-          ) : errors.summary ? null : summary.recent_summary.length ? (
-            <Card
-              variant="dashboard"
-              className="dashboard-panel dashboard-list-panel"
-            >
-              <div className="dashboard-compact-list">
-                {summary.recent_summary.map((match) => (
-                  <Link
-                    className="dashboard-match-row"
-                    key={match.id}
-                    to={buildMatchDestination(match.id)}
-                  >
-                    <span className="dashboard-match-result">
-                      {match.result_label || getResultLabel(match.result)}
-                    </span>
-                    <span className="dashboard-match-copy">
-                      <strong>
-                        vs {match.opponent?.username || "Unknown opponent"}
-                      </strong>
-                      <small>
-                        {match.score_line || "No result submitted"} ·{" "}
-                        {formatDashboardDate(
-                          match.played_at || match.created_at,
-                          "Date pending"
-                        )}
-                      </small>
-                    </span>
-                    <Badge tone={getMatchStatusTone(match)}>
-                      {getMatchStatusPresentation(match.status).label}
-                    </Badge>
-                  </Link>
-                ))}
-              </div>
-            </Card>
+          ) : errors.summary && !loaded.summary ? null : summary.recent_summary.length ? (
+            <div className="dashboard-compact-list rich-match-card-list">
+              {summary.recent_summary.map((match) => (
+                <RichMatchCard
+                  key={match.id}
+                  match={match}
+                  currentUserId={user?.id}
+                  currentUserName={user?.username}
+                  variant="compact"
+                  detailPath={buildMatchDestination(match.id)}
+                />
+              ))}
+            </div>
           ) : (
             <Card variant="empty" className="dashboard-panel">
               <EmptyState
@@ -503,12 +584,13 @@ export default function Dashboard() {
             </Button>
           }
         >
-          <ErrorState
-            message={errors.ranking}
+        <ErrorState
+          message={errors.ranking}
             onRetry={() => loadRanking({ forceRefresh: true })}
-            retryLabel="Retry ranking"
-          />
-          {loading.ranking ? (
+          retryLabel="Retry ranking"
+        />
+          {loading.ranking && loaded.ranking ? <span className="inline-loading-status" role="status">Refreshing ranking…</span> : null}
+          {loading.ranking && !loaded.ranking ? (
             <SectionLoader lines={5} message="Loading ranking context..." />
           ) : ranking.player ? (
             <Card
@@ -574,7 +656,8 @@ export default function Dashboard() {
           onRetry={() => loadActivity({ forceRefresh: true })}
           retryLabel="Retry activity"
         />
-        {loading.activity ? (
+        {loading.activity && loaded.activity ? <span className="inline-loading-status" role="status">Refreshing activity…</span> : null}
+        {loading.activity && !loaded.activity ? (
           <ActivitySkeleton count={5} message="Loading recent activity" />
         ) : activity.length ? (
           <ActivityList activities={activity} compact label="Recent account activity" />
@@ -592,15 +675,16 @@ export default function Dashboard() {
 }
 
 function buildStats(summary, ranking) {
+  const confirmedMatches = summary.wins + summary.losses + summary.draws;
   return [
     {
       id: "total-matches",
-      title: "Total Matches",
-      value: String(summary.total_matches),
-      subtitle: "All recorded match workflows",
+      title: "Completed Matches",
+      value: String(confirmedMatches),
+      subtitle: "Confirmed results only",
       icon: "matches",
       tone: "primary",
-      emphasis: summary.total_matches > 0,
+      emphasis: confirmedMatches > 0,
     },
     {
       id: "wins",
@@ -673,33 +757,6 @@ function buildMatchDestination(matchId) {
     return "/dashboard/matches";
   }
   return `/dashboard/matches?matchId=${encodeURIComponent(matchId)}`;
-}
-
-function getInitials(value) {
-  return String(value)
-    .split(/[\s@._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0].toUpperCase())
-    .join("");
-}
-
-function getResultLabel(result) {
-  const labels = { win: "W", loss: "L", draw: "D" };
-  return labels[String(result || "").toLowerCase()] || "—";
-}
-
-function getActionTone(type) {
-  if (type === "dispute_status") {
-    return "danger";
-  }
-  if (
-    type === "match_request" ||
-    type === "result_awaiting_confirmation"
-  ) {
-    return "warning";
-  }
-  return "info";
 }
 
 function getWelcomeMessage({ isLoading, error, actionCount }) {

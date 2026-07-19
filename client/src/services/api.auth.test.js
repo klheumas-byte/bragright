@@ -8,11 +8,22 @@ import {
   getMyActivity,
   getMyProfileMatches,
   getPublicPlayerProfile,
+  restoreSession,
 } from "./api.js";
-import { clearAuthSession } from "./authSession.js";
+import { clearAuthSession, getAccessToken } from "./authSession.js";
 
 
 const originalFetch = globalThis.fetch;
+const originalSessionStorage = globalThis.sessionStorage;
+
+function createSessionStorage() {
+  const values = new Map();
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+}
 
 
 function jsonResponse(body, status = 200) {
@@ -24,6 +35,7 @@ function jsonResponse(body, status = 200) {
 
 
 beforeEach(() => {
+  globalThis.sessionStorage = createSessionStorage();
   clearAuthSession();
   clearClientApiCache();
 });
@@ -31,6 +43,51 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  globalThis.sessionStorage = originalSessionStorage;
+});
+
+test("page refresh restores an unexpired per-tab access session without rotating the cookie", async () => {
+  const user = { id: "player-id", username: "Player", role: "player" };
+  globalThis.sessionStorage.setItem("bragright_session_v1", JSON.stringify({
+    accessToken: "stored-access-token",
+    user,
+    expiresAt: Date.now() + 60_000,
+  }));
+  const requests = [];
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), authorization: options.headers?.Authorization });
+    return jsonResponse({ success: true, user });
+  };
+
+  const session = await restoreSession();
+
+  assert.equal(session.user.id, user.id);
+  assert.equal(getAccessToken(), "stored-access-token");
+  assert.equal(requests.length, 1);
+  assert.ok(requests[0].url.endsWith("/auth/me"));
+  assert.equal(requests[0].authorization, "Bearer stored-access-token");
+});
+
+test("expired per-tab sessions are discarded and fall back to the HttpOnly refresh session", async () => {
+  const user = { id: "player-id", username: "Player", role: "player" };
+  globalThis.sessionStorage.setItem("bragright_session_v1", JSON.stringify({
+    accessToken: "expired-access-token",
+    user,
+    expiresAt: Date.now() - 1,
+  }));
+  globalThis.fetch = async (url) => {
+    assert.ok(String(url).endsWith("/auth/refresh"));
+    return jsonResponse({
+      success: true,
+      access_token: "new-access-token",
+      expires_in: 900,
+      user,
+    });
+  };
+
+  await restoreSession();
+
+  assert.equal(getAccessToken(), "new-access-token");
 });
 
 

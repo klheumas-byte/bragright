@@ -7,20 +7,68 @@ export function LoadingProvider({ children }) {
   const location = useLocation();
   const loadingIdsRef = useRef(new Set());
   const nextIdRef = useRef(0);
+  const routeRenderedRef = useRef(false);
+  const routeEpochRef = useRef(0);
+  const routeSafetyTimerRef = useRef(null);
+  const routeCompletionTimerRef = useRef(null);
+  const progressTimerRef = useRef(null);
   const [activeLoadCount, setActiveLoadCount] = useState(0);
   const [isRouteLoading, setIsRouteLoading] = useState(true);
+  const [routeProgress, setRouteProgress] = useState(0.08);
 
   useEffect(() => {
+    routeEpochRef.current += 1;
+    routeRenderedRef.current = false;
     setIsRouteLoading(true);
+    setRouteProgress(0.08);
+    window.clearTimeout(routeSafetyTimerRef.current);
+    window.clearTimeout(routeCompletionTimerRef.current);
+    window.clearInterval(progressTimerRef.current);
 
-    const timeoutId = window.setTimeout(() => {
+    progressTimerRef.current = window.setInterval(() => {
+      setRouteProgress((current) => Math.min(current + Math.max((0.9 - current) * 0.12, 0.015), 0.9));
+    }, 180);
+
+    routeSafetyTimerRef.current = window.setTimeout(() => {
       setIsRouteLoading(false);
-    }, 320);
+      setRouteProgress(1);
+      window.clearInterval(progressTimerRef.current);
+    }, 10000);
 
     return () => {
-      window.clearTimeout(timeoutId);
+      window.clearTimeout(routeSafetyTimerRef.current);
+      window.clearTimeout(routeCompletionTimerRef.current);
+      window.clearInterval(progressTimerRef.current);
     };
-  }, [location.pathname, location.search, location.hash]);
+  }, [location.pathname, location.search]);
+
+  const completeRouteIfReady = useCallback(() => {
+    if (!routeRenderedRef.current || loadingIdsRef.current.size > 0) {
+      return;
+    }
+
+    window.clearTimeout(routeCompletionTimerRef.current);
+    const routeEpoch = routeEpochRef.current;
+    routeCompletionTimerRef.current = window.setTimeout(() => {
+      if (
+        routeEpoch !== routeEpochRef.current ||
+        !routeRenderedRef.current ||
+        loadingIdsRef.current.size > 0
+      ) {
+        return;
+      }
+      setRouteProgress(1);
+      window.clearInterval(progressTimerRef.current);
+      window.setTimeout(() => {
+        if (routeEpoch === routeEpochRef.current) setIsRouteLoading(false);
+      }, 140);
+    }, 100);
+  }, []);
+
+  const markRouteRendered = useCallback(() => {
+    routeRenderedRef.current = true;
+    completeRouteIfReady();
+  }, [completeRouteIfReady]);
 
   const startLoading = useCallback(() => {
     const loadingId = `load-${nextIdRef.current++}`;
@@ -36,7 +84,8 @@ export function LoadingProvider({ children }) {
 
     loadingIdsRef.current.delete(loadingId);
     setActiveLoadCount(loadingIdsRef.current.size);
-  }, []);
+    completeRouteIfReady();
+  }, [completeRouteIfReady]);
 
   const trackLoading = useCallback(async (asyncWork) => {
     const loadingId = startLoading();
@@ -51,13 +100,14 @@ export function LoadingProvider({ children }) {
   const value = useMemo(
     () => ({
       activeLoadCount,
-      isGlobalLoading: isRouteLoading || activeLoadCount > 0,
       isRouteLoading,
+      routeProgress,
+      markRouteRendered,
       startLoading,
       stopLoading,
       trackLoading,
     }),
-    [activeLoadCount, isRouteLoading, startLoading, stopLoading, trackLoading]
+    [activeLoadCount, isRouteLoading, markRouteRendered, routeProgress, startLoading, stopLoading, trackLoading]
   );
 
   return <LoadingContext.Provider value={value}>{children}</LoadingContext.Provider>;

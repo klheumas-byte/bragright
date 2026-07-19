@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import RichMatchCard from "../components/RichMatchCard";
 import SectionSkeleton from "../components/SectionSkeleton";
 import { Button } from "../components/ui";
 import { useLoading } from "../context/LoadingContext";
@@ -255,28 +256,19 @@ export default function HeadToHead() {
             {comparison.recent_matches.length ? (
               <div className="match-list">
                 {comparison.recent_matches.map((match) => (
-                  <article key={match.match_id} className="match-card">
-                    <div className="match-card-top">
-                      <div>
-                        <p className="match-card-player">
-                          {comparison.player_a.username} vs {comparison.player_b.username}
-                        </p>
-                        <p className="match-card-meta">Confirmed {formatDate(match.confirmed_at)}</p>
-                      </div>
-                      <span className={`match-status-badge ${getResultTone(match.result_label)}`}>{match.result_label}</span>
-                    </div>
-
-                    <div className="player-match-score">
-                      <div className="match-score-line">
-                        <span className="match-score-label">{comparison.player_a.username}</span>
-                        <strong>{match.player_a_score}</strong>
-                      </div>
-                      <div className="match-score-line">
-                        <span className="match-score-label">{comparison.player_b.username}</span>
-                        <strong>{match.player_b_score}</strong>
-                      </div>
-                    </div>
-                  </article>
+                  <RichMatchCard
+                    key={match.match_id}
+                    variant="compact"
+                    match={{
+                      id: match.match_id,
+                      status: "confirmed",
+                      player_one: comparison.player_a,
+                      player_two: comparison.player_b,
+                      player_one_score: match.player_a_score,
+                      player_two_score: match.player_b_score,
+                      confirmed_at: match.confirmed_at,
+                    }}
+                  />
                 ))}
               </div>
             ) : (
@@ -307,23 +299,4 @@ function resolveLeaderLabel(comparison) {
   }
 
   return "Rivalry is tied";
-}
-
-function getResultTone(resultLabel) {
-  if (resultLabel.includes("won")) {
-    return "match-status-confirmed";
-  }
-
-  return "match-status-pending";
-}
-
-function formatDate(value) {
-  if (!value) {
-    return "Not available";
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
 }

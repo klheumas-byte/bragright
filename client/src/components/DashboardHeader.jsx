@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import SidebarIcon from "./SidebarIcon";
+import ProfileAvatar from "./ProfileAvatar";
 import { ThemeSwitcher } from "./ThemeSwitcher";
+import { NotificationBell } from "../notifications/NotificationCenter";
 
 // DashboardHeader is the top card for dashboard pages.
 // It keeps the page label, title, and avatar together in one reusable section.
@@ -10,7 +11,6 @@ export default function DashboardHeader({
   description,
   identityLabel,
   identityMeta,
-  avatarInitials = "BR",
   avatarImage = "",
   onLogout,
   onSidebarToggle,
@@ -19,12 +19,7 @@ export default function DashboardHeader({
   sidebarButtonRef,
 }) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  const [avatarFailed, setAvatarFailed] = useState(false);
   const userMenuRef = useRef(null);
-
-  useEffect(() => {
-    setAvatarFailed(false);
-  }, [avatarImage]);
 
   useEffect(() => {
     function handlePointerDown(event) {
@@ -78,6 +73,7 @@ export default function DashboardHeader({
       </div>
 
       <div className="dashboard-header-actions">
+        <NotificationBell />
         <ThemeSwitcher />
         <div className="dashboard-user-area" ref={userMenuRef}>
         <button
@@ -88,15 +84,12 @@ export default function DashboardHeader({
           onClick={() => setIsUserMenuOpen((currentValue) => !currentValue)}
         >
           <div className="dashboard-user-meta">
-            <div className="dashboard-avatar" role={avatarImage && !avatarFailed ? undefined : "img"} aria-label={avatarImage && !avatarFailed ? undefined : `${identityLabel} avatar fallback`}>
-              {avatarImage && !avatarFailed ? (
-                <img src={avatarImage} alt={`${identityLabel} profile avatar`} className="dashboard-avatar-image" onError={() => setAvatarFailed(true)} />
-              ) : avatarInitials ? (
-                <span aria-hidden="true">{avatarInitials}</span>
-              ) : (
-                <SidebarIcon name="profile" decorative className="dashboard-avatar-default-icon" />
-              )}
-            </div>
+            <ProfileAvatar
+              image={avatarImage}
+              name={identityLabel}
+              size="sm"
+              className="dashboard-avatar"
+            />
             <div>
               <p className="dashboard-user-label">Signed in</p>
               <p className="dashboard-user-name">{identityLabel}</p>

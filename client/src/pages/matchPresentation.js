@@ -1,41 +1,55 @@
 export const MATCH_STATUS_PRESENTATION = Object.freeze({
   match_requested: {
     label: "Match request",
+    icon: "clock",
     tone: "warning",
     description: "Waiting for the requested player to accept or decline.",
   },
+  scheduled: {
+    label: "Scheduled",
+    icon: "clock",
+    tone: "info",
+    description: "The challenge is scheduled and waiting for the existing match workflow to continue.",
+  },
   pending_result: {
     label: "Ready for result",
+    icon: "bolt",
     tone: "info",
     description: "The accepted match is ready for score submission.",
   },
   pending_confirmation: {
     label: "Awaiting confirmation",
+    icon: "clock",
     tone: "warning",
     description: "A submitted result is waiting for opponent review.",
   },
   confirmed: {
     label: "Confirmed",
+    icon: "check",
     tone: "success",
     description: "The result is confirmed and included in official statistics.",
   },
   disputed: {
     label: "Under admin review",
+    icon: "disputes",
     tone: "danger",
     description: "The submitted result was disputed and awaits an admin decision.",
   },
   rejected: {
     label: "Result rejected",
-    tone: "neutral",
+    icon: "disputes",
+    tone: "danger",
     description: "The disputed result was rejected by an administrator.",
   },
   cancelled: {
     label: "Cancelled",
+    icon: "activity",
     tone: "neutral",
     description: "This match was cancelled and no longer accepts player actions.",
   },
   expired: {
     label: "Expired",
+    icon: "clock",
     tone: "neutral",
     description: "This match expired before completion.",
   },
@@ -71,6 +85,7 @@ export const MATCH_VIEWS = Object.freeze([
 
 const UNKNOWN_PRESENTATION = Object.freeze({
   label: "Status unavailable",
+  icon: "activity",
   tone: "neutral",
   description: "The current match status could not be identified. Refresh before taking action.",
 });
@@ -113,17 +128,17 @@ export function getMatchNextStep(match, currentUserId = "") {
 
 export function buildMatchTimeline(match) {
   const events = [
-    event("created", "Challenge created", match?.created_at),
-    event("accepted", "Challenge accepted", match?.accepted_at),
-    event("submitted", "Result submitted", match?.result_submitted_at),
-    event("disputed", "Dispute opened", match?.disputed_at),
-    event("confirmed", "Result confirmed", match?.confirmed_at),
-    event("reviewed", "Admin review completed", match?.reviewed_at),
-    event("declined", "Challenge declined", match?.declined_at),
+    event("created", "Challenge created", match?.created_at, "matches", "The match challenge entered the workflow."),
+    event("accepted", "Challenge accepted", match?.accepted_at, "check", "The requested player accepted the challenge."),
+    event("submitted", "Result submitted", match?.result_submitted_at, "submit", "A player submitted the score for review."),
+    event("disputed", "Dispute opened", match?.disputed_at, "disputes", "The submitted score was placed under administrator review."),
+    event("confirmed", "Result confirmed", match?.confirmed_at, "trophy", "The result became official."),
+    event("reviewed", "Admin review completed", match?.reviewed_at, "check", "An administrator completed the existing dispute review."),
+    event("declined", "Challenge declined", match?.declined_at, "activity", "The requested player declined the challenge."),
     !match?.declined_at
-      ? event("cancelled", "Match cancelled", match?.cancelled_at)
+      ? event("cancelled", "Match cancelled", match?.cancelled_at, "stop", "The match was cancelled before completion.")
       : null,
-    event("expired", "Match expired", match?.expired_at),
+    event("expired", "Match expired", match?.expired_at, "clock", "The match expired before the workflow completed."),
   ].filter(Boolean);
 
   return events.sort(
@@ -187,6 +202,6 @@ export function getMatchErrorMessage(error, fallback = "The match could not be u
   return error?.message || fallback;
 }
 
-function event(id, label, timestamp) {
-  return timestamp ? { id, label, timestamp } : null;
+function event(id, label, timestamp, icon, description) {
+  return timestamp ? { id, label, timestamp, icon, description } : null;
 }

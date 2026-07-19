@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import ErrorState from "../components/ErrorState";
 import ProtectedProofImage from "../components/ProtectedProofImage";
+import RichMatchCard from "../components/RichMatchCard";
 import SectionLoader from "../components/SectionLoader";
 import SuccessAlert from "../components/SuccessAlert";
 import { Badge, Button } from "../components/ui";
@@ -240,35 +241,13 @@ export default function AdminDisputes() {
           ) : disputes.length ? (
             <div className="admin-dispute-list">
               {disputes.map((match) => (
-                <button
+                <RichMatchCard
                   key={match.id}
-                  type="button"
-                  className={`admin-dispute-list-item${selectedMatchId === match.id ? " admin-dispute-list-item-active" : ""}`}
-                  onClick={() => setSelectedMatchId(match.id)}
-                >
-                  <div className="admin-dispute-list-top">
-                    <p className="admin-dispute-list-title">
-                      {match.players.submitted_by.username} vs {match.players.opponent.username}
-                    </p>
-                    <Badge tone={getMatchStatusPresentation(match.status).tone}>
-                      {getMatchStatusPresentation(match.status).label}
-                    </Badge>
-                  </div>
-
-                  <div className="admin-dispute-list-metrics">
-                    <span>Submitted score</span>
-                    <strong>
-                      {match.player_score} - {match.opponent_score}
-                    </strong>
-                  </div>
-
-                  <p className="admin-dispute-snippet">{match.dispute_note || "No dispute note was provided."}</p>
-
-                  <div className="admin-dispute-list-footer">
-                    <span>{match.proof_image_url ? "Proof attached" : "No proof image"}</span>
-                  <span>{formatDate(match.disputed_at || match.reviewed_at || match.confirmed_at)}</span>
-                  </div>
-                </button>
+                  match={match}
+                  variant="admin"
+                  isSelected={selectedMatchId === match.id}
+                  onSelect={() => setSelectedMatchId(match.id)}
+                />
               ))}
             </div>
           ) : (

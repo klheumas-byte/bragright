@@ -1,11 +1,26 @@
+import { useState } from "react";
+import { Alert, Button } from "./ui";
+
 export default function ErrorState({
   message,
   onRetry,
   retryLabel = "Retry",
   className = "",
 }) {
+  const [isRetrying, setIsRetrying] = useState(false);
+
   if (!message) {
     return null;
+  }
+
+  async function handleRetry() {
+    if (isRetrying) return;
+    setIsRetrying(true);
+    try {
+      await onRetry();
+    } finally {
+      setIsRetrying(false);
+    }
   }
 
   return (
@@ -18,7 +33,9 @@ export default function ErrorState({
             variant="secondary"
             size="sm"
             className="inline-action-button"
-            onClick={onRetry}
+            onClick={handleRetry}
+            isLoading={isRetrying}
+            loadingText="Retrying…"
           >
             {retryLabel}
           </Button>
@@ -29,4 +46,3 @@ export default function ErrorState({
     </Alert>
   );
 }
-import { Alert, Button } from "./ui";

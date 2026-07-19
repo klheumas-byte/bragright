@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
+import { SkeletonTableRow } from "../LoadingSkeletons";
 import Button from "./Button";
-import { EmptyState, Spinner } from "./Feedback";
+import { EmptyState } from "./Feedback";
 
 function readValue(row, column) {
   if (typeof column.accessor === "function") {
@@ -61,8 +62,10 @@ export default function DataTable({
 
   if (isLoading) {
     return (
-      <div className="ui-card ui-card--loading ui-empty-state" aria-busy="true">
-        <Spinner label="Loading table" />
+      <div className="ui-card ui-card--loading ui-table-skeleton" aria-busy="true" role="status" aria-label="Loading table">
+        {Array.from({ length: Math.min(pageSize, 6) }, (_, index) => (
+          <SkeletonTableRow key={index} cells={columns.length || 5} />
+        ))}
         <span>Loading records…</span>
       </div>
     );

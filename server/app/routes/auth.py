@@ -272,6 +272,7 @@ def _set_refresh_cookie(response, raw_refresh_token):
         samesite=current_app.config["AUTH_COOKIE_SAMESITE"],
         domain=current_app.config.get("AUTH_COOKIE_DOMAIN") or None,
         path="/api/auth",
+        partitioned=current_app.config.get("AUTH_COOKIE_PARTITIONED", False),
     )
 
 
@@ -283,6 +284,7 @@ def _clear_refresh_cookie(response):
         samesite=current_app.config["AUTH_COOKIE_SAMESITE"],
         domain=current_app.config.get("AUTH_COOKIE_DOMAIN") or None,
         path="/api/auth",
+        partitioned=current_app.config.get("AUTH_COOKIE_PARTITIONED", False),
     )
 
 

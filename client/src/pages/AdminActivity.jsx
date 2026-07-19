@@ -22,6 +22,7 @@ export default function AdminActivity() {
   const [pagination, setPagination] = useState(emptyPagination);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const isInitialLoading = isLoading && logs.length === 0;
 
   useEffect(() => { loadActivityLogs(); }, [appliedFilters, page]);
 
@@ -81,16 +82,17 @@ export default function AdminActivity() {
         </Card>
 
         <ErrorState message={error} onRetry={loadActivityLogs} retryLabel="Retry admin activity" />
-        {isLoading ? <ActivitySkeleton count={6} message="Loading admin activity" /> : error ? null : logs.length ? (
-          <>
+        {isInitialLoading ? <ActivitySkeleton count={6} message="Loading admin activity" /> : logs.length ? (
+          <div className={isLoading ? "loading-region--refreshing" : ""} aria-busy={isLoading || undefined}>
+            {isLoading ? <span className="inline-loading-status" role="status">Refreshing admin activity…</span> : null}
             <ActivityList activities={logs} admin label="Admin activity timeline" />
             <nav className="activity-pagination" aria-label="Admin activity pagination">
               <Button variant="secondary" size="sm" disabled={!pagination.has_previous} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</Button>
               <span aria-live="polite">Page {pagination.page} of {Math.max(pagination.pages, 1)}</span>
               <Button variant="secondary" size="sm" disabled={!pagination.has_next} onClick={() => setPage((current) => current + 1)}>Next</Button>
             </nav>
-          </>
-        ) : (
+          </div>
+        ) : error ? null : (
           <Card variant="empty"><EmptyState title={hasFilters ? "No matching admin activity" : "No admin activity yet"} description={hasFilters ? "Clear or change the current filters." : "Administrative actions will appear here when they are recorded."} />{hasFilters ? <div className="activity-empty-actions"><Button variant="secondary" onClick={clearFilters}>Clear filters</Button></div> : null}</Card>
         )}
       </PageSection>

@@ -43,6 +43,25 @@ def test_successful_player_login_returns_safe_session(client, create_user):
     assert "HttpOnly" in response.headers.get("Set-Cookie")
 
 
+def test_production_refresh_cookie_supports_partitioned_cross_site_sessions(
+    app, client, create_user
+):
+    app.config.update(
+        AUTH_COOKIE_SECURE=True,
+        AUTH_COOKIE_SAMESITE="None",
+        AUTH_COOKIE_PARTITIONED=True,
+    )
+    create_user(PLAYER_EMAIL, password=PLAYER_PASSWORD)
+
+    response = _login(client)
+    cookie_header = response.headers.get("Set-Cookie")
+
+    assert response.status_code == 200
+    assert "Secure" in cookie_header
+    assert "SameSite=None" in cookie_header
+    assert "Partitioned" in cookie_header
+
+
 def test_invalid_password_is_rejected(client, create_user):
     create_user(PLAYER_EMAIL, password=PLAYER_PASSWORD)
 

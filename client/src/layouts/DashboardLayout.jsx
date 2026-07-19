@@ -1,28 +1,78 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import {
+  Suspense,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import BackButton from "../components/BackButton";
-import { getAvatarInitials } from "../components/avatarViewModel";
 import DashboardHeader from "../components/DashboardHeader";
+import MobileFastScroll from "../components/MobileFastScroll";
+import { RoutePageSkeleton } from "../components/LoadingSkeletons";
+import RouteErrorBoundary from "../components/RouteErrorBoundary";
 import Sidebar from "../components/Sidebar";
 import { useAuth } from "../context/AuthContext";
+import { useLoading } from "../context/LoadingContext";
 import { getApiAssetUrl } from "../services/api";
 
 const MOBILE_NAVIGATION_QUERY = "(max-width: 900px), (hover: none), (pointer: coarse)";
+const DashboardLayoutContext = createContext(null);
 
-// DashboardLayout is a layout component for dashboard pages.
-// Layout components define shared page structure like sidebars, headers, and content spacing.
+const ROUTE_META = {
+  "/dashboard": ["Competitive Command Center", "Track your record, ranking, rivals, and next move."],
+  "/leaderboard": ["Leaderboard", "See who owns the top spot."],
+  "/profile": ["My Profile", "Your competitive identity, record, and match history."],
+  "/activity": ["My Activity", "Follow every move in your private competitive journey."],
+  "/head-to-head": ["Head-to-Head", "Compare rivals and settle the matchup with real records."],
+  "/dashboard/matches": ["My Matches", "Track every challenge, result, and rivalry."],
+  "/dashboard/submit-match": ["Challenge Arena", "Challenge a rival and record the result."],
+  "/admin/dashboard": ["Admin Dashboard", "Keep BragRight's competitive arena trusted and operational."],
+  "/admin/profile": ["Admin Profile", "Your operator identity and recent arena actions."],
+  "/admin/activity": ["Admin Activity", "Protected operational events with safe actor and related-record context."],
+  "/admin/users": ["Admin Users", "Manage player access without losing sight of the competition."],
+  "/admin/disputes": ["Admin Disputes", "Resolve contested results and protect the integrity of play."],
+  "/admin/settings": ["Admin Settings", "Tune the rules that keep the competitive experience reliable."],
+};
+
+export function DashboardLayoutProvider({ children }) {
+  const [pageMeta, setPageMeta] = useState(null);
+  const value = useMemo(() => ({ pageMeta, setPageMeta }), [pageMeta]);
+  return <DashboardLayoutContext.Provider value={value}>{children}</DashboardLayoutContext.Provider>;
+}
+
 export default function DashboardLayout({ title, description, sidebarRank, showBackButton = true, children }) {
+  const location = useLocation();
+  const context = useContext(DashboardLayoutContext);
+
+  useLayoutEffect(() => {
+    context?.setPageMeta({ pathname: location.pathname, title, description, sidebarRank, showBackButton });
+  }, [context?.setPageMeta, description, location.pathname, showBackButton, sidebarRank, title]);
+
+  return children;
+}
+
+// The shell is mounted once above authenticated route content. Page-level
+// DashboardLayout wrappers only publish header metadata and no longer recreate it.
+export function DashboardShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { pageMeta } = useContext(DashboardLayoutContext) || {};
   const sidebarToggleRef = useRef(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobileView, setIsMobileView] = useState(readInitialMobileView);
   const isAdminView = location.pathname.startsWith("/admin");
-  const avatarInitials = getAvatarInitials(user?.username || user?.email || "");
   const identityLabel = user?.username || user?.email || "BragRight Player";
   const identityMeta = user?.email || (isAdminView ? "Admin account" : "Competitive account");
   const avatarImage = user?.profile_image ? getApiAssetUrl(user.profile_image) : "";
+  const defaultMeta = getRouteMeta(location.pathname);
+  const activeMeta = pageMeta?.pathname === location.pathname ? pageMeta : defaultMeta;
+  const { title, description, sidebarRank, showBackButton = true } = activeMeta;
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -116,7 +166,6 @@ export default function DashboardLayout({ title, description, sidebarRank, showB
           description={description}
           identityLabel={identityLabel}
           identityMeta={identityMeta}
-          avatarInitials={avatarInitials}
           avatarImage={avatarImage}
           onLogout={handleLogout}
           onSidebarToggle={handleSidebarToggle}
@@ -128,11 +177,40 @@ export default function DashboardLayout({ title, description, sidebarRank, showB
           {showBackButton ? (
             <div className="dashboard-content-topbar"><BackButton /></div>
           ) : null}
-          {children}
+          <RouteErrorBoundary resetKey={`${location.pathname}${location.search}`}>
+            <Suspense fallback={<RoutePageSkeleton pathname={location.pathname} />}>
+              <RouteReadySignal routeKey={`${location.pathname}${location.search}`}>
+                <Outlet />
+              </RouteReadySignal>
+            </Suspense>
+          </RouteErrorBoundary>
         </div>
       </main>
+      {isMobileView ? <MobileFastScroll /> : null}
     </div>
   );
+}
+
+function RouteReadySignal({ routeKey, children }) {
+  const { markRouteRendered } = useLoading();
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(markRouteRendered, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [markRouteRendered, routeKey]);
+
+  return children;
+}
+
+function getRouteMeta(pathname) {
+  if (pathname.startsWith("/players/")) {
+    return { title: "Player Profile", description: "Review this player's competitive record and rivalry context." };
+  }
+  if (pathname.startsWith("/head-to-head/")) {
+    return { title: ROUTE_META["/head-to-head"][0], description: ROUTE_META["/head-to-head"][1] };
+  }
+  const [title = "BragRight", description = "Your competitive arena."] = ROUTE_META[pathname] || [];
+  return { title, description, showBackButton: pathname !== "/dashboard/matches" };
 }
 
 function readInitialMobileView() {

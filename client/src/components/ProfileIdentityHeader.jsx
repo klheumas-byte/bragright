@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { Card } from "./ui";
-import ProfileAvatar from "./ProfileAvatar";
+import PlayerIdentity from "./PlayerIdentity";
 import SidebarIcon from "./SidebarIcon";
 
 export default function ProfileIdentityHeader({
@@ -13,6 +13,7 @@ export default function ProfileIdentityHeader({
   label = "Player profile",
   isLoading = false,
   loader,
+  player,
 }) {
   const generatedId = useId();
   const titleId = `${generatedId}-profile-title`;
@@ -31,12 +32,15 @@ export default function ProfileIdentityHeader({
       ) : (
         <div className="profile-hero-layout">
           <div className="profile-identity-block">
-            <ProfileAvatar image={image} name={name} />
             <div className="profile-identity-copy">
               <p className="profile-identity-label">{label}</p>
-              <h2 className="profile-hero-title" id={titleId}>
-                {name || "BragRight Player"}
-              </h2>
+              <h2 className="sr-only" id={titleId}>{name || "BragRight Player"}</h2>
+              <PlayerIdentity
+                player={player || { name, profile_image: image }}
+                variant="full"
+                className="profile-hero-identity"
+                showUsername
+              />
               {subtitle ? <p className="profile-hero-email">{subtitle}</p> : null}
               {badges ? <div className="profile-badge-row">{badges}</div> : null}
               {actions ? <div className="profile-header-actions">{actions}</div> : null}

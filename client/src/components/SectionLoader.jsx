@@ -3,7 +3,7 @@ import { Card } from "./ui";
 
 export default function SectionLoader({
   lines = 4,
-  message = "Loading...",
+  message = "Loading section",
   compact = false,
   className = "dashboard-panel",
   as = "section",

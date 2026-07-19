@@ -1,13 +1,14 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { getApiAssetUrl, getDashboardActions } from "../services/api";
+import { getDashboardActions } from "../services/api";
+import ProfileAvatar from "./ProfileAvatar";
 import SidebarIcon from "./SidebarIcon";
 import {
   ADMIN_NAVIGATION_ITEMS,
   PLAYER_NAVIGATION_ITEMS,
 } from "./sidebarNavigation";
-import { getSidebarAvatarMode, getSidebarIdentity } from "./sidebarViewModel";
+import { getSidebarIdentity } from "./sidebarViewModel";
 
 const SIDEBAR_SCROLL_STORAGE_KEY = "bragright_sidebar_scroll";
 
@@ -260,36 +261,13 @@ const SidebarUserBlock = memo(function SidebarUserBlock({ identity, currentRank,
 });
 
 function SidebarAvatar({ identity, compact = false }) {
-  const [imageFailed, setImageFailed] = useState(false);
-
-  useEffect(() => {
-    setImageFailed(false);
-  }, [identity.image]);
-
-  const className = `sidebar-avatar${compact ? " sidebar-avatar-compact" : ""}`;
-  const avatarMode = getSidebarAvatarMode(identity, imageFailed);
-  if (avatarMode === "image") {
-    return (
-      <span className={className}>
-        <img
-          src={getApiAssetUrl(identity.image)}
-          alt={`${identity.displayName} profile avatar`}
-          onError={() => setImageFailed(true)}
-        />
-      </span>
-    );
-  }
-  if (avatarMode === "initials") {
-    return (
-      <span className={className} role="img" aria-label={`${identity.displayName} initials avatar`}>
-        <span aria-hidden="true">{identity.initials}</span>
-      </span>
-    );
-  }
   return (
-    <span className={className}>
-      <SidebarIcon name="profile" label="Default profile avatar" />
-    </span>
+    <ProfileAvatar
+      image={identity.image}
+      name={identity.initials ? identity.displayName : ""}
+      size={compact ? "xs" : "sm"}
+      className={`sidebar-avatar${compact ? " sidebar-avatar-compact" : ""}`}
+    />
   );
 }
 

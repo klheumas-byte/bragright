@@ -72,6 +72,7 @@ export function normalizeOwnerMatches(matches) {
   return Array.isArray(matches)
     ? matches.map((match) => ({
         id: match?.id || "",
+        opponentId: match?.opponent?.id || "",
         opponentName: match?.opponent?.username || "Unknown opponent",
         playerScore: match?.player_score ?? "—",
         opponentScore: match?.opponent_score ?? "—",
@@ -95,6 +96,7 @@ export function normalizePublicMatches(matches) {
   return Array.isArray(matches)
     ? matches.map((match) => ({
         id: match?.match_id || "",
+        opponentId: match?.opponent_id || "",
         opponentName: match?.opponent_name || "Unknown opponent",
         playerScore: match?.player_score ?? "—",
         opponentScore: match?.opponent_score ?? "—",

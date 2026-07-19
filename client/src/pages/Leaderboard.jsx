@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import ErrorState from "../components/ErrorState";
-import CompetitiveBadge from "../components/CompetitiveBadge";
+import PlayerIdentity from "../components/PlayerIdentity";
 import {
   CurrentPlayerSkeleton,
   LeaderboardControlsSkeleton,
@@ -10,7 +10,6 @@ import {
   LeaderboardPaginationSkeleton,
   TopPlayersSkeleton,
 } from "../components/LeaderboardSkeletons";
-import ProfileAvatar from "../components/ProfileAvatar";
 import SidebarIcon from "../components/SidebarIcon";
 import TrophyWatermark from "../components/TrophyWatermark";
 import { Badge, Button, Card, EmptyState, Field, PageSection } from "../components/ui";
@@ -189,10 +188,12 @@ export default function Leaderboard() {
           className="leaderboard-current-card"
           aria-labelledby="your-position-title"
         >
-          <ProfileAvatar
-            image={currentPlayer.profile_image}
-            name={currentPlayer.username}
-            className="leaderboard-avatar"
+          <PlayerIdentity
+            player={currentPlayer}
+            variant="leaderboard"
+            isCurrent
+            showUsername={false}
+            className="leaderboard-current-identity"
           />
           <div className="leaderboard-current-copy">
             <Badge tone="info">Your rank</Badge>
@@ -213,7 +214,14 @@ export default function Leaderboard() {
           className="leaderboard-current-card"
           aria-labelledby="your-position-title"
         >
-          <ProfileAvatar name={user?.username || "Current player"} className="leaderboard-avatar" />
+          <PlayerIdentity
+            player={user}
+            variant="leaderboard"
+            isCurrent
+            showUsername={false}
+            showBadges={false}
+            className="leaderboard-current-identity"
+          />
           <div className="leaderboard-current-copy">
             <Badge tone="neutral">Not listed</Badge>
             <h2 id="your-position-title">Your position is not available</h2>
@@ -240,19 +248,15 @@ export default function Leaderboard() {
                 key={player.id}
                 className={`podium-card podium-card-rank-${player.rank}`}
               >
-                <div className="podium-card-header">
-                  <ProfileAvatar
-                    image={player.profile_image}
-                    name={player.username}
-                    className="leaderboard-avatar leaderboard-avatar-top"
-                  />
-                  <CompetitiveBadge kind="rank" value={player.rank} />
-                </div>
-                <h3 className="podium-name">{player.username}</h3>
+                <PlayerIdentity
+                  player={player}
+                  variant="leaderboard"
+                  showUsername={false}
+                  className="podium-player-identity"
+                />
                 <p className="podium-meta">
                   {player.wins}-{player.losses}-{player.draws} confirmed record
                 </p>
-                <strong className="podium-points">{player.points} pts</strong>
                 <Button
                   as={Link}
                   to={`/players/${player.id}`}
@@ -316,13 +320,13 @@ export default function Leaderboard() {
               : `${pagination.total} ranked ${pagination.total === 1 ? "player" : "players"}`}
         </div>
 
-        {isInitialLoading || isTransitioning ? (
+        {isInitialLoading ? (
           <LeaderboardListSkeleton
             rows={PAGE_SIZE}
             label={search ? "Loading leaderboard search results" : "Loading leaderboard list"}
           />
         ) : errorMessage && !hasLoaded ? null : entries.length ? (
-          <div className="leaderboard-list">
+          <div className={`leaderboard-list${isTransitioning ? " loading-region--refreshing" : ""}`} aria-busy={isTransitioning || undefined}>
             {entries.map((player) => (
               <LeaderboardEntry
                 key={player.id}
@@ -347,14 +351,14 @@ export default function Leaderboard() {
           </Card>
         )}
 
-        {isInitialLoading || isTransitioning ? (
+        {isInitialLoading ? (
           <LeaderboardPaginationSkeleton />
         ) : pagination.pages > 1 ? (
-          <nav className="leaderboard-pagination" aria-label="Leaderboard pages">
+          <nav className="leaderboard-pagination" aria-label="Leaderboard pages" aria-busy={isTransitioning || undefined}>
             <Button
               variant="secondary"
               size="sm"
-              disabled={!pagination.has_previous}
+              disabled={isTransitioning || !pagination.has_previous}
               onClick={() =>
                 setPagination((current) => ({
                   ...current,
@@ -370,7 +374,7 @@ export default function Leaderboard() {
             <Button
               variant="secondary"
               size="sm"
-              disabled={!pagination.has_next}
+              disabled={isTransitioning || !pagination.has_next}
               onClick={() =>
                 setPagination((current) => ({
                   ...current,
@@ -401,16 +405,14 @@ function LeaderboardEntry({ player, viewer, isCurrent }) {
         <strong>#{player.rank}</strong>
       </div>
       <div className="leaderboard-entry-identity">
-        <ProfileAvatar
-          image={player.profile_image}
-          name={player.username}
-          className="leaderboard-avatar"
+        <PlayerIdentity
+          player={player}
+          variant="leaderboard"
+          isCurrent={isCurrent}
+          showUsername={false}
+          showBadges={false}
         />
         <div>
-          <div className="leaderboard-entry-name-row">
-            <h3>{player.username}</h3>
-            {isCurrent ? <Badge tone="info">Your rank</Badge> : null}
-          </div>
           <p>
             {player.total_matches} matches · {player.wins}-{player.losses}-{player.draws} record
           </p>

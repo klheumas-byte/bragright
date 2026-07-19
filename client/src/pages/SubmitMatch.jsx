@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import ErrorState from "../components/ErrorState";
-import MatchCard from "../components/MatchCard";
+import RichMatchCard from "../components/RichMatchCard";
 import { OpponentSearchSkeleton, MatchListSkeleton } from "../components/MatchSkeletons";
-import ProfileAvatar from "../components/ProfileAvatar";
+import PlayerIdentity from "../components/PlayerIdentity";
 import SidebarIcon from "../components/SidebarIcon";
 import SuccessAlert from "../components/SuccessAlert";
 import TrophyWatermark from "../components/TrophyWatermark";
@@ -43,6 +43,7 @@ export default function SubmitMatch() {
   const [opponentError, setOpponentError] = useState("");
   const [waitingMatches, setWaitingMatches] = useState([]);
   const [isLoadingMatches, setIsLoadingMatches] = useState(true);
+  const [hasLoadedMatches, setHasLoadedMatches] = useState(false);
   const [resultValues, setResultValues] = useState(EMPTY_RESULT);
   const [proofFile, setProofFile] = useState(null);
   const [proofError, setProofError] = useState("");
@@ -120,7 +121,6 @@ export default function SubmitMatch() {
       setOpponents(players);
     } catch (error) {
       if (requestId === opponentRequestRef.current) {
-        setOpponents([]);
         setOpponentError(getMatchErrorMessage(error, "Opponents could not be loaded."));
       }
     } finally {
@@ -140,6 +140,7 @@ export default function SubmitMatch() {
         ? response.data.matches
         : [];
       setWaitingMatches(nextMatches);
+      setHasLoadedMatches(true);
       setResultValues((current) => ({
         ...current,
         match_id: nextMatches.some((match) => match.id === current.match_id)
@@ -147,7 +148,6 @@ export default function SubmitMatch() {
           : nextMatches[0]?.id || "",
       }));
     } catch (error) {
-      setWaitingMatches([]);
       setFeedback({
         type: "error",
         message: getMatchErrorMessage(error, "Accepted matches could not be loaded."),
@@ -296,20 +296,15 @@ export default function SubmitMatch() {
               description="Search is debounced and performed by the server."
             />
 
-            {isLoadingOpponents ? (
+            {isLoadingOpponents && !opponents.length ? (
               <OpponentSearchSkeleton />
-            ) : opponentError ? (
-              <ErrorState
-                message={opponentError}
-                onRetry={() => loadOpponents({ forceRefresh: true })}
-                retryLabel="Retry opponent search"
-              />
-            ) : opponents.length ? (
-              <div className="opponent-results" role="group" aria-label="Eligible opponents">
+            ) : (
+              <div className={`opponent-search-region${isLoadingOpponents ? " loading-region--refreshing" : ""}`} aria-busy={isLoadingOpponents || undefined}>
+                {isLoadingOpponents ? <span className="inline-loading-status" role="status">Searching opponents…</span> : null}
+                {opponentError ? <ErrorState message={opponentError} onRetry={() => loadOpponents({ forceRefresh: true })} retryLabel="Retry opponent search" /> : null}
+                {opponents.length ? <div className="opponent-results" role="group" aria-label="Eligible opponents">
                 {opponents.map((player) => {
                   const isSelected = selectedOpponent?.id === player.id;
-                  const displayName = getOpponentDisplayName(player);
-                  const username = getOpponentUsername(player, displayName);
                   return (
                     <button
                       key={player.id}
@@ -318,53 +313,36 @@ export default function SubmitMatch() {
                       className={`opponent-option-card${isSelected ? " opponent-option-selected" : ""}`}
                       onClick={() => setSelectedOpponent(player)}
                     >
-                      <ProfileAvatar
-                        image={player.profile_image}
-                        name={displayName}
-                        className="match-avatar"
+                      <PlayerIdentity
+                        player={player}
+                        variant="compact"
+                        className="opponent-option-copy"
                       />
-                      <span className="opponent-option-copy">
-                        <span className="opponent-option-name-row">
-                          <strong title={displayName}>{displayName}</strong>
-                          {isSelected ? (
-                            <span className="opponent-selected-check" aria-label="Selected opponent">
-                              <SidebarIcon name="check" decorative />
-                            </span>
-                          ) : null}
+                      {isSelected ? (
+                        <span className="opponent-selected-check" aria-label="Selected opponent">
+                          <SidebarIcon name="check" decorative />
                         </span>
-                        {username ? <small title={username}>@{username}</small> : null}
-                        <OpponentMetadata player={player} />
-                      </span>
+                      ) : null}
                     </button>
                   );
                 })}
-              </div>
-            ) : (
-              <Card variant="empty">
+              </div> : !opponentError && !isLoadingOpponents ? <Card variant="empty">
                 <EmptyState
                   title="No eligible opponents found"
                   description="Try another username or clear the search."
                 />
-              </Card>
+              </Card> : null}
+              </div>
             )}
 
             {selectedOpponent ? (
               <Card variant="dashboard" className="selected-opponent-card" aria-live="polite">
-                <ProfileAvatar
-                  image={selectedOpponent.profile_image}
-                  name={getOpponentDisplayName(selectedOpponent)}
-                  className="match-avatar match-avatar-selected"
+                <PlayerIdentity
+                  player={selectedOpponent}
+                  variant="compact"
+                  label="Selected opponent"
+                  className="selected-opponent-copy"
                 />
-                <div className="selected-opponent-copy">
-                  <span>Selected opponent</span>
-                  <strong title={getOpponentDisplayName(selectedOpponent)}>
-                    {getOpponentDisplayName(selectedOpponent)}
-                  </strong>
-                  {getOpponentUsername(selectedOpponent, getOpponentDisplayName(selectedOpponent)) ? (
-                    <small>@{getOpponentUsername(selectedOpponent, getOpponentDisplayName(selectedOpponent))}</small>
-                  ) : null}
-                  <OpponentMetadata player={selectedOpponent} />
-                </div>
                 <span className="selected-opponent-confirmation" aria-label="Opponent selected">
                   <SidebarIcon name="check" decorative />
                 </span>
@@ -395,7 +373,7 @@ export default function SubmitMatch() {
           </Button>
         }
       >
-        {isLoadingMatches ? (
+        {isLoadingMatches && !hasLoadedMatches ? (
           <MatchListSkeleton rows={2} label="Loading accepted matches" />
         ) : waitingMatches.length ? (
           <Card variant="information" className="match-form-card">
@@ -421,7 +399,7 @@ export default function SubmitMatch() {
               </Field>
 
               {selectedMatch ? (
-                <MatchCard match={selectedMatch} currentUserId={user?.id} />
+                <RichMatchCard match={selectedMatch} currentUserId={user?.id} currentUserName={user?.username} variant="full" />
               ) : null}
 
               <div className="match-score-grid">
@@ -511,28 +489,4 @@ export default function SubmitMatch() {
       </PageSection>
     </DashboardLayout>
   );
-}
-
-function OpponentMetadata({ player }) {
-  const hasRank = player?.rank !== undefined && player?.rank !== null;
-  const hasPoints = player?.points !== undefined && player?.points !== null;
-  if (!hasRank && !hasPoints) return null;
-
-  return (
-    <span className="opponent-option-meta" aria-label="Competitive details">
-      {hasRank ? <span>Rank #{player.rank}</span> : null}
-      {hasPoints ? <span>{player.points} pts</span> : null}
-    </span>
-  );
-}
-
-function getOpponentDisplayName(player) {
-  return String(player?.display_name || player?.name || player?.username || "Player").trim();
-}
-
-function getOpponentUsername(player, displayName) {
-  const username = String(player?.username || "").trim().replace(/^@/, "");
-  return username && username.toLocaleLowerCase() !== String(displayName).toLocaleLowerCase()
-    ? username
-    : "";
 }

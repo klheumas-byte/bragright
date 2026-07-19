@@ -12,7 +12,8 @@ const context = readFileSync(new URL("context/ThemeContext.jsx", root), "utf8");
 const switcher = readFileSync(new URL("components/ThemeSwitcher.jsx", root), "utf8");
 const trophy = readFileSync(new URL("components/TrophyWatermark.jsx", root), "utf8");
 const matches = readFileSync(new URL("pages/MyMatches.jsx", root), "utf8");
-const matchCard = readFileSync(new URL("components/MatchCard.jsx", root), "utf8");
+const matchCard = readFileSync(new URL("components/RichMatchCard.jsx", root), "utf8");
+const playerIdentity = readFileSync(new URL("components/PlayerIdentity.jsx", root), "utf8");
 const matchPresentation = readFileSync(new URL("pages/matchPresentation.js", root), "utf8");
 const dashboard = readFileSync(new URL("pages/Dashboard.jsx", root), "utf8");
 const statCard = readFileSync(new URL("components/StatCard.jsx", root), "utf8");
@@ -101,14 +102,13 @@ test("reference Match Center details are present with real-data bindings", () =>
 });
 
 test("match cards render You versus Opponent with avatars, metrics, status, and more details", () => {
-  assert.match(matchCard, /label="You"/);
-  assert.match(matchCard, /label="Opponent"/);
-  assert.match(matchCard, /<strong>VS<\/strong>/);
-  assert.match(matchCard, /<ProfileAvatar/);
-  assert.match(matchCard, /name="bolt"/);
+  assert.match(matchCard, /participant\.perspectiveLabel/);
+  assert.match(matchCard, /rich-match-versus__marker">VS/);
+  assert.match(matchCard, /<PlayerIdentity/);
+  assert.match(playerIdentity, /getIdentityBadges/);
   assert.match(matchCard, /name="crown"/);
-  assert.match(matchCard, /More match details/);
-  assert.match(matchCard, /match\.deadline_at \|\| match\.expires_at/);
+  assert.match(matchCard, /view\.status\.label/);
+  assert.match(matchCard, /View match/);
   assert.doesNotMatch(matchCard, /Detective-D|ShadowStrike/);
 });
 
@@ -130,10 +130,9 @@ test("global motion is restrained, theme-aware, and reduced-motion safe", () => 
 });
 
 test("Submit Match opponent cards preserve readable identities and obvious selection", () => {
-  assert.match(submitMatch, /className="opponent-option-name-row"/);
-  assert.match(submitMatch, /<OpponentMetadata player=\{player\} \/>/);
+  assert.match(submitMatch, /<PlayerIdentity[\s\S]*?player=\{player\}/);
+  assert.match(submitMatch, /variant="compact"/);
   assert.match(submitMatch, /name="check" decorative/);
-  assert.match(submitMatch, /<ProfileAvatar[\s\S]*?image=\{player\.profile_image\}/);
   assert.match(css, /html\[data-theme="light"\] \.opponent-option-card[\s\S]*?background: #f9fcfd[\s\S]*?color: #163047/);
   assert.match(css, /html\[data-theme="dark"\] \.opponent-option-card[\s\S]*?background: #19303b[\s\S]*?color: #f5fbff/);
   assert.match(css, /\.opponent-option-card:focus-visible/);

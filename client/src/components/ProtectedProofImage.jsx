@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchProtectedAsset } from "../services/api";
 import SectionSkeleton from "./SectionSkeleton";
 
-export default function ProtectedProofImage({ path, alt = "Match proof" }) {
+export default function ProtectedProofImage({ path, alt = "Match proof", showDownload = false }) {
   const [assetUrl, setAssetUrl] = useState("");
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -58,9 +58,12 @@ export default function ProtectedProofImage({ path, alt = "Match proof" }) {
   }
 
   return (
-    <a className="match-proof-link" href={assetUrl} target="_blank" rel="noreferrer">
-      <img className="match-proof-image" src={assetUrl} alt={alt} />
-      <span className="inline-action-link">Open proof</span>
-    </a>
+    <div className="match-proof-asset">
+      <a className="match-proof-link" href={assetUrl} target="_blank" rel="noreferrer">
+        <img className="match-proof-image" src={assetUrl} alt={alt} />
+        <span className="inline-action-link">View evidence</span>
+      </a>
+      {showDownload ? <a className="inline-action-button" href={assetUrl} download="bragright-match-evidence">Download image</a> : null}
+    </div>
   );
 }

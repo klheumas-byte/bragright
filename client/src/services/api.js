@@ -2,6 +2,7 @@ import {
   clearAuthSession,
   getAccessToken,
   getSessionUser,
+  restoreStoredAuthSession,
   setAuthSession,
 } from "./authSession.js";
 
@@ -102,6 +103,7 @@ function establishSessionFromResponse(data) {
   setAuthSession({
     accessToken: data.access_token,
     user: data.user,
+    expiresIn: data.expires_in,
   });
   return data;
 }
@@ -476,7 +478,27 @@ export function logoutUser() {
 }
 
 export function restoreSession() {
-  return refreshAuthentication();
+  const storedSession = restoreStoredAuthSession();
+  if (!storedSession) return refreshAuthentication();
+
+  return apiRequest("/auth/me", { skipAuthRefresh: true })
+    .then((data) => {
+      setAuthSession({
+        accessToken: storedSession.accessToken,
+        user: data.user,
+        expiresAt: storedSession.expiresAt,
+      });
+      return data;
+    })
+    .catch((error) => {
+      if (error?.status === 401 || error?.status === 423) {
+        return refreshAuthentication();
+      }
+
+      // A valid, unexpired access token can keep the shell available during a
+      // temporary network interruption; protected API calls still enforce it.
+      return { success: true, user: storedSession.user, restored_offline: true };
+    });
 }
 
 export function getMyProfile(options = {}) {
@@ -655,10 +677,11 @@ export function getDashboardSummary(options = {}) {
   });
 }
 
-export function getDashboardActionCenter() {
+export function getDashboardActionCenter(options = {}) {
   return cachedApiRequest("/dashboard/action-center", {
     cacheKey: "dashboard-action-center",
     ttlMs: 10_000,
+    forceRefresh: options.forceRefresh,
   });
 }
 

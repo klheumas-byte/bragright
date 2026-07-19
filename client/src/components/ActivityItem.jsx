@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import ProfileAvatar from "./ProfileAvatar";
+import PlayerIdentity from "./PlayerIdentity";
 import SidebarIcon from "./SidebarIcon";
 import { Badge, Button, Card } from "./ui";
 import { formatActivityTimestamp, presentActivity } from "./activityPresentation";
@@ -10,9 +10,15 @@ export default function ActivityItem({ activity, admin = false, compact = false 
   const actorName = String(activity?.actor?.display_name || "Unavailable user");
 
   return (
-    <Card as="article" variant="dashboard" className={`activity-item ${compact ? "activity-item--compact" : ""}`.trim()}>
+    <Card as="article" variant="dashboard" className={`activity-item activity-item--${presentation.category} ${compact ? "activity-item--compact" : ""}`.trim()} aria-label={`${presentation.title}. ${presentation.description}`}>
       <div className="activity-item__identity">
-        <ProfileAvatar image={activity?.actor?.profile_image} name={actorName} className="activity-item__avatar" />
+        <PlayerIdentity
+          player={{ ...activity?.actor, name: actorName }}
+          variant="inline"
+          className="activity-item__player"
+          showUsername={false}
+          showBadges={false}
+        />
         <span className={`activity-item__icon activity-item__icon--${presentation.tone}`} aria-hidden="true">
           <SidebarIcon name={presentation.icon} decorative />
         </span>
@@ -20,7 +26,7 @@ export default function ActivityItem({ activity, admin = false, compact = false 
       <div className="activity-item__content">
         <div className="activity-item__heading">
           <div>
-            <h3>{presentation.title}</h3>
+            <div className="activity-item__title-row"><h3>{presentation.title}</h3><Badge tone="neutral">{presentation.category}</Badge></div>
             <p>{presentation.description}</p>
           </div>
           {presentation.status ? <Badge tone={presentation.tone}>{presentation.status}</Badge> : null}

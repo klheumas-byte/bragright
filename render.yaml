@@ -27,6 +27,8 @@ services:
         value: "true"
       - key: AUTH_COOKIE_SAMESITE
         value: None
+      - key: AUTH_COOKIE_PARTITIONED
+        value: "true"
       - key: MAX_UPLOAD_SIZE_MB
         value: "5"
       - key: UPLOAD_STORAGE_PROVIDER

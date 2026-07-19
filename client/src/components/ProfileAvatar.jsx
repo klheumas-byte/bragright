@@ -7,31 +7,45 @@ export default function ProfileAvatar({
   image,
   name = "",
   className = "",
+  size = "lg",
+  isWinner = false,
+  isCurrent = false,
+  loading = "lazy",
 }) {
   const imageUrl = getApiAssetUrl(image);
   const [imageFailed, setImageFailed] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const accessibleName = String(name || "").trim() || "Player";
   const initials = getAvatarInitials(name, "");
 
   useEffect(() => {
     setImageFailed(false);
+    setImageLoaded(false);
   }, [imageUrl]);
 
   const showImage = Boolean(imageUrl) && !imageFailed;
 
   return (
     <div
-      className={`profile-avatar profile-avatar-large ${className}`.trim()}
+      className={[
+        "profile-avatar",
+        `profile-avatar--${size}`,
+        isWinner ? "profile-avatar--winner" : "",
+        isCurrent ? "profile-avatar--current" : "",
+        className,
+      ].filter(Boolean).join(" ")}
       role={showImage ? undefined : "img"}
       aria-label={showImage ? undefined : `${accessibleName} avatar fallback`}
     >
+      {showImage && !imageLoaded ? <span className="profile-avatar-placeholder" aria-hidden="true" /> : null}
       {showImage ? (
         <img
           src={imageUrl}
           alt={`${accessibleName} profile avatar`}
-          className="profile-avatar-image"
-          loading="lazy"
+          className={`profile-avatar-image${imageLoaded ? " profile-avatar-image--loaded" : ""}`}
+          loading={loading}
           decoding="async"
+          onLoad={() => setImageLoaded(true)}
           onError={() => setImageFailed(true)}
         />
       ) : initials ? (
