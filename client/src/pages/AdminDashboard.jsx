@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import ActivityList from "../components/ActivityList";
 import ErrorState from "../components/ErrorState";
 import SectionLoader from "../components/SectionLoader";
+import SidebarIcon from "../components/SidebarIcon";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
 import { getAdminSummary } from "../services/api";
@@ -16,6 +18,13 @@ const initialSummary = {
   total_admins: 0,
   recent_activity: [],
 };
+
+const adminActions = [
+  { to: "/admin/users", icon: "users", label: "Manage users", copy: "Create accounts, update access, and reset passwords." },
+  { to: "/admin/disputes", icon: "disputes", label: "Review disputes", copy: "Resolve contested matches and protect trusted results." },
+  { to: "/admin/activity", icon: "activity", label: "View activity", copy: "Review recent administrative and platform events." },
+  { to: "/admin/settings", icon: "settings", label: "Open settings", copy: "Adjust system rules and appearance preferences." },
+];
 
 export default function AdminDashboard() {
   const { trackLoading } = useLoading();
@@ -87,6 +96,7 @@ export default function AdminDashboard() {
     <DashboardLayout
       title="Admin Dashboard"
       description="Keep BragRight's competitive arena trusted and operational."
+      showBackButton={false}
     >
       <section className="feature-hero-card admin-hero-card">
         <div>
@@ -101,6 +111,29 @@ export default function AdminDashboard() {
       </section>
 
       <ErrorState message={feedback.type === "error" ? feedback.message : ""} onRetry={loadSummary} />
+
+      <section className="dashboard-panel admin-action-panel" aria-labelledby="admin-quick-actions-title">
+        <div className="panel-header">
+          <div>
+            <p className="panel-kicker">Quick actions</p>
+            <h2 className="panel-title" id="admin-quick-actions-title">What would you like to manage?</h2>
+          </div>
+        </div>
+        <div className="admin-quick-actions">
+          {adminActions.map((action) => (
+            <Link className="admin-quick-action" to={action.to} key={action.to}>
+              <span className="admin-quick-action-icon" aria-hidden="true">
+                <SidebarIcon name={action.icon} decorative />
+              </span>
+              <span className="admin-quick-action-copy">
+                <strong>{action.label}</strong>
+                <small>{action.copy}</small>
+              </span>
+              <span className="admin-quick-action-arrow" aria-hidden="true">→</span>
+            </Link>
+          ))}
+        </div>
+      </section>
 
       {isLoading ? (
         <SectionLoader lines={6} message="Loading admin dashboard..." />

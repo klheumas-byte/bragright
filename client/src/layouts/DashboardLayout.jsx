@@ -140,7 +140,10 @@ export function DashboardShell() {
   }
 
   return (
-    <div className="dashboard-shell dashboard-shell-sidebar-collapsed">
+    <div
+      className={`dashboard-shell dashboard-shell-sidebar-collapsed${isAdminView ? " dashboard-shell-admin" : ""}`}
+      data-area={isAdminView ? "admin" : "player"}
+    >
       <Sidebar
         isMobileView={isMobileView}
         isOpen={isMobileView ? sidebarOpen : true}

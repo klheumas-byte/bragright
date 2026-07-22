@@ -29,6 +29,8 @@ textarea {
 body {
   margin: 0;
   min-width: 320px;
+  overflow-x: clip;
+  -webkit-text-size-adjust: 100%;
   background:
     radial-gradient(circle at 16% 4%, rgba(93, 214, 255, 0.15), transparent 28%),
     linear-gradient(115deg, transparent 0 48%, rgba(29, 87, 145, 0.025) 48% 52%, transparent 52% 100%),
@@ -7192,10 +7194,10 @@ html[data-theme] .dashboard-shell {
     var(--app-background);
 }
 
-.dashboard-shell :is(.dashboard-panel, .admin-summary-card, .admin-foundation-card, .admin-user-card, .admin-activity-card, .notification-card, .notification-banner, .match-card-shared, .leaderboard-row-link, .profile-stat-card, .profile-meta-card, .dashboard-ranking-row, .selected-opponent-card, .match-detail-card, .match-challenge-card) {
-  border-color: var(--arena-border);
-  background: linear-gradient(135deg, rgba(53, 216, 230, 0.04), transparent 34%), var(--arena-surface);
-  color: var(--arena-text-primary);
+html[data-theme] .dashboard-shell :is(.dashboard-panel, .admin-summary-card, .admin-foundation-card, .admin-user-card, .admin-activity-card, .notification-card, .notification-banner, .match-card-shared, .leaderboard-row-link, .profile-stat-card, .profile-meta-card, .dashboard-ranking-row, .selected-opponent-card, .match-detail-card, .match-challenge-card) {
+  border-color: var(--border-subtle);
+  background: linear-gradient(135deg, var(--glow-primary), transparent 34%), var(--surface-primary);
+  color: var(--text-primary);
 }
 
 html[data-theme] .dashboard-shell .dashboard-header {

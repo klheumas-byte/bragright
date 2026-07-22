@@ -30,19 +30,22 @@ export default function Navbar() {
           >
             Dashboard
           </NavLink>
-        ) : null}
-        <NavLink
-          to="/login"
-          className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
-        >
-          Sign in
-        </NavLink>
-        <NavLink
-          to="/register"
-          className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
-        >
-          Join
-        </NavLink>
+        ) : (
+          <>
+            <NavLink
+              to="/login"
+              className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
+            >
+              Sign in
+            </NavLink>
+            <NavLink
+              to="/register"
+              className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
+            >
+              Join
+            </NavLink>
+          </>
+        )}
       </nav>
     </header>
   );

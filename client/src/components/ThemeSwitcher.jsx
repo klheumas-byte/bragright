@@ -81,7 +81,7 @@ export function AppearanceSettings() {
       <div>
         <p className="panel-kicker">Personal preference</p>
         <h2 className="panel-title" id="appearance-settings-title">Appearance</h2>
-        <p className="appearance-settings-copy">Choose Dark Arena, Light Arena, or follow this device. System currently resolves to {effectiveTheme}.</p>
+        <p className="appearance-settings-copy">Light is the default. You can choose Dark Arena or follow this device; System currently resolves to {effectiveTheme}.</p>
       </div>
       <div className="appearance-option-grid" role="radiogroup" aria-label="Theme preference">
         {THEME_OPTIONS.map((option) => (

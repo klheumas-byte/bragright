@@ -31,11 +31,14 @@ function Sidebar({
   });
   const isAdminView = location.pathname.startsWith("/admin");
   const visibleNavigationItems = useMemo(
-    () =>
-      user?.role === "admin" || user?.is_admin
-        ? [...ADMIN_NAVIGATION_ITEMS, ...PLAYER_NAVIGATION_ITEMS]
-        : PLAYER_NAVIGATION_ITEMS,
-    [user?.is_admin, user?.role]
+    () => {
+      const isAdmin = user?.role === "admin" || user?.is_admin;
+      if (!isAdmin) return PLAYER_NAVIGATION_ITEMS;
+      return isAdminView
+        ? ADMIN_NAVIGATION_ITEMS
+        : [ADMIN_NAVIGATION_ITEMS[0], ...PLAYER_NAVIGATION_ITEMS];
+    },
+    [isAdminView, user?.is_admin, user?.role]
   );
   const identity = useMemo(() => getSidebarIdentity(user), [
     user?.display_name,

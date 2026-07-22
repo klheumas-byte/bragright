@@ -11,6 +11,8 @@ const avatar = readFileSync(new URL("components/ProfileAvatar.jsx", root), "utf8
 const adminProfile = readFileSync(new URL("pages/AdminProfile.jsx", root), "utf8");
 const home = readFileSync(new URL("pages/Home.jsx", root), "utf8");
 const navbar = readFileSync(new URL("components/Navbar.jsx", root), "utf8");
+const adminDashboard = readFileSync(new URL("pages/AdminDashboard.jsx", root), "utf8");
+const dashboardLayout = readFileSync(new URL("layouts/DashboardLayout.jsx", root), "utf8");
 
 test("the canonical premium layer loads after retained page styles", () => {
   assert.ok(main.indexOf('import "./index.css"') < main.indexOf('import "./styles/premium-theme.css"'));
@@ -44,6 +46,19 @@ test("light panels, sidebar icons, and opponent selection retain visible contras
   assert.match(premiumTheme, /\.sidebar-link-active \.sidebar-link-icon[\s\S]*?background:\s*var\(--accent-primary-strong\)/);
   assert.match(premiumTheme, /\.opponent-option-card\.opponent-option-selected[\s\S]*?border:\s*2px solid var\(--accent-primary-strong\)[\s\S]*?background:\s*var\(--surface-panel-strong\)/);
   assert.match(premiumTheme, /\.opponent-selected-check[\s\S]*?background:\s*var\(--accent-primary-strong\)/);
+});
+
+test("admin routes use semantic theme surfaces and responsive mobile layouts", () => {
+  assert.match(premiumTheme, /Admin routes share the same semantic theme contract as player routes/);
+  assert.match(premiumTheme, /\.admin-dispute-list-item[\s\S]*?background:\s*var\(--surface-primary\)/);
+  assert.match(premiumTheme, /\.admin-users-row[\s\S]*?border:\s*1px solid var\(--border-subtle\)/);
+  assert.match(premiumTheme, /\.admin-generated-password-value[\s\S]*?color:\s*var\(--text-primary\)/);
+  assert.match(premiumTheme, /@media \(max-width:\s*900px\)[\s\S]*?\.admin-users-row[\s\S]*?repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(premiumTheme, /@media \(max-width:\s*640px\)[\s\S]*?\.admin-users-row[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)/);
+  assert.match(dashboardLayout, /dashboard-shell-admin/);
+  assert.match(premiumTheme, /data-theme="light"\] \.dashboard-shell-admin/);
+  assert.match(adminDashboard, /What would you like to manage\?/);
+  assert.match(adminDashboard, /showBackButton=\{false\}/);
 });
 
 test("every avatar fallback uses the shared high-contrast premium treatment", () => {

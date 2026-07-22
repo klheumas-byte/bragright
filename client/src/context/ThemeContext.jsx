@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
+  DEFAULT_THEME_PREFERENCE,
   normalizeThemePreference,
   resolveTheme,
   THEME_STORAGE_KEY,
@@ -37,6 +38,10 @@ export function ThemeProvider({ children }) {
     root.dataset.theme = effectiveTheme;
     root.dataset.themePreference = preference;
     root.style.colorScheme = effectiveTheme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute(
+      "content",
+      effectiveTheme === "light" ? "#f2f7f7" : "#0e1a24"
+    );
   }, [effectiveTheme, preference]);
 
   useEffect(() => () => window.clearTimeout(transitionTimerRef.current), []);
@@ -69,7 +74,7 @@ function readStoredPreference() {
   try {
     return normalizeThemePreference(window.localStorage.getItem(THEME_STORAGE_KEY));
   } catch {
-    return "system";
+    return DEFAULT_THEME_PREFERENCE;
   }
 }
 
