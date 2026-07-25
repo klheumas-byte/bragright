@@ -9,6 +9,7 @@ def get_dashboard_summary(current_user, matches_collection, *, is_admin=False):
         actions = create_match_action_items(current_user, matches_collection, is_admin=True)
         overview = {
             "total_matches": 0,
+            "matches_played": 0,
             "wins": 0,
             "losses": 0,
             "draws": 0,

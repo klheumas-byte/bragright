@@ -23,28 +23,18 @@ export function getRecentForm(matches, limit = 5) {
 export function getPendingPlayerActions(items, now = Date.now()) {
   if (!Array.isArray(items)) return [];
   return items.filter((item) => {
-    if (!["match_request", "result_awaiting_confirmation", "dispute_requiring_review"].includes(item?.type)) return false;
+    if (!["match_request", "result_required", "result_submission_required", "result_awaiting_confirmation", "dispute_requiring_review"].includes(item?.type)) return false;
     if (!item || item.completed === true || item.is_completed === true || item.can_act === false) return false;
     const status = clean(item.status).toLowerCase();
     if (["completed", "confirmed", "cancelled", "expired", "resolved"].includes(status)) return false;
     const expiry = dateValue(item.expires_at || item.deadline);
     return !expiry || expiry > now;
-  });
+  }).sort(compareMatchActionPriority);
 }
 
 export function getNextBestAction(items) {
   const actions = getPendingPlayerActions(items);
-  const priorities = {
-    dispute_status: 1,
-    dispute_requiring_review: 1,
-    dispute_response_required: 1,
-    result_awaiting_confirmation: 2,
-    result_submission_required: 3,
-    match_request: 4,
-  };
-  const selected = [...actions].sort(
-    (a, b) => (priorities[a?.type] || 50) - (priorities[b?.type] || 50)
-  )[0];
+  const selected = actions[0];
   if (!selected) {
     return {
       type: "recommended_competitive_action",
@@ -60,6 +50,7 @@ export function getNextBestAction(items) {
     dispute_requiring_review: ["Review the disputed match", "A disputed match requires an administrator decision.", "danger"],
     dispute_response_required: ["Respond to the dispute", "A disputed match requires your response.", "danger"],
     result_awaiting_confirmation: ["Confirm your latest result", "Your opponent submitted a result that needs review.", "warning"],
+    result_required: ["Enter your match result", "An accepted match is waiting for its score.", "warning"],
     result_submission_required: ["Submit your match result", "An accepted match is waiting for its result.", "warning"],
     match_request: ["Respond to a new challenge", "Accept or decline this match request.", "warning"],
   };
@@ -73,6 +64,20 @@ export function getNextBestAction(items) {
     matchId: clean(selected.related_match_id || selected.match_id),
     tone,
   };
+}
+
+function compareMatchActionPriority(left, right) {
+  const priorities = {
+    dispute_requiring_review: 1,
+    result_awaiting_confirmation: 2,
+    match_request: 3,
+    result_required: 4,
+    result_submission_required: 4,
+  };
+  const priorityDifference =
+    (priorities[left?.type] || 50) - (priorities[right?.type] || 50);
+  if (priorityDifference) return priorityDifference;
+  return dateValue(right?.created_at) - dateValue(left?.created_at);
 }
 
 export function buildPerformanceInsights({ matches, summary, actionSummary } = {}) {
@@ -125,16 +130,42 @@ export function calculateHeadToHead(matches, { minimum = RIVALRY_MINIMUM } = {})
   getRecentForm(matches, Number.MAX_SAFE_INTEGER).forEach((match) => {
     const key = clean(match.opponentId || match.opponentName).toLowerCase();
     if (!key || key === "unknown opponent") return;
-    const record = groups.get(key) || { opponentId: match.opponentId, opponentName: match.opponentName, matches: 0, wins: 0, losses: 0, draws: 0, latest: null };
+    const record = groups.get(key) || {
+      opponentId: match.opponentId,
+      opponentName: match.opponentName,
+      matches: 0,
+      wins: 0,
+      losses: 0,
+      draws: 0,
+      goalsFor: 0,
+      goalsAgainst: 0,
+      biggestWin: null,
+      latest: null,
+    };
     record.matches += 1;
     if (match.result === "win") record.wins += 1;
     else if (match.result === "loss") record.losses += 1;
     else if (match.result === "draw") record.draws += 1;
+    const score = parseScoreLine(match.score);
+    if (score) {
+      record.goalsFor += score.for;
+      record.goalsAgainst += score.against;
+      const margin = score.for - score.against;
+      if (match.result === "win" && (!record.biggestWin || margin > record.biggestWin.margin)) {
+        record.biggestWin = { score: match.score, margin };
+      }
+    }
     if (!record.latest || dateValue(match.playedAt) > dateValue(record.latest.playedAt)) record.latest = match;
     groups.set(key, record);
   });
   const rival = [...groups.values()].filter((item) => item.matches >= minimum).sort((a, b) => b.matches - a.matches || Math.abs(a.wins - a.losses) - Math.abs(b.wins - b.losses))[0];
-  return rival ? { ...rival, definition: `Most-played opponent across at least ${minimum} confirmed matches.` } : null;
+  return rival ? {
+    ...rival,
+    totalGoals: rival.goalsFor + rival.goalsAgainst,
+    goalDifference: rival.goalsFor - rival.goalsAgainst,
+    latestResult: rival.latest?.score || rival.latest?.resultLabel || "",
+    definition: `Most-played opponent across at least ${minimum} confirmed matches.`,
+  } : null;
 }
 
 export function createHeadToHeadSummary(comparison) {
@@ -173,6 +204,11 @@ function normalizeFormItem(match) {
     matchType: clean(match.match_type || match.game),
     detailPath: match.detailPath || (match.id ? `/dashboard/matches?matchId=${encodeURIComponent(match.id)}` : ""),
   };
+}
+
+function parseScoreLine(value) {
+  const match = clean(value).match(/^(\d+)\s*[–-]\s*(\d+)$/);
+  return match ? { for: Number(match[1]), against: Number(match[2]) } : null;
 }
 
 function clean(value) { return value == null || value === "undefined" ? "" : String(value).trim(); }

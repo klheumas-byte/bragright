@@ -223,3 +223,23 @@ def revoke_user_sessions(user_id, now=None):
         {"user_id": str(user_id), "revoked_at": None},
         {"$set": {"revoked_at": now or _now_utc()}},
     )
+
+
+def revoke_other_user_sessions(user_id, current_session_id, now=None):
+    sessions = get_auth_sessions_collection(
+        config=current_app.config,
+        logger=current_app.logger,
+    )
+    return sessions.update_many(
+        {
+            "user_id": str(user_id),
+            "session_id": {"$ne": str(current_session_id)},
+            "revoked_at": None,
+        },
+        {
+            "$set": {
+                "revoked_at": now or _now_utc(),
+                "revocation_reason": "password_changed",
+            }
+        },
+    )

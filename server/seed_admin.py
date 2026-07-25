@@ -7,10 +7,11 @@ from pymongo.errors import ConfigurationError, ConnectionFailure, OperationFailu
 from werkzeug.security import generate_password_hash
 
 from app.db import describe_mongo_error, get_mongo_settings, load_server_env
+from app.services.admin_access import ADMIN_ROLE, SUPER_ADMIN_ROLE
 
 
-ADMIN_ROLE = "admin"
 ADMIN_STATUS = "active"
+SUPPORTED_SEED_ROLES = {ADMIN_ROLE, SUPER_ADMIN_ROLE}
 
 
 def main():
@@ -18,10 +19,17 @@ def main():
     admin_email = str(os.getenv("ADMIN_SEED_EMAIL", "")).strip().lower()
     admin_username = str(os.getenv("ADMIN_SEED_USERNAME", "")).strip()
     admin_password = str(os.getenv("ADMIN_SEED_PASSWORD", ""))
-    if not admin_email or not admin_username or len(admin_password) < 12:
+    admin_role = str(os.getenv("ADMIN_SEED_ROLE", ADMIN_ROLE)).strip().lower()
+    if (
+        not admin_email
+        or not admin_username
+        or len(admin_password) < 12
+        or admin_role not in SUPPORTED_SEED_ROLES
+    ):
         print(
             "Configuration error: ADMIN_SEED_EMAIL, ADMIN_SEED_USERNAME, and an "
-            "ADMIN_SEED_PASSWORD of at least 12 characters are required."
+            "ADMIN_SEED_PASSWORD of at least 12 characters are required. "
+            f"ADMIN_SEED_ROLE must be one of: {', '.join(sorted(SUPPORTED_SEED_ROLES))}."
         )
         return 1
 
@@ -34,7 +42,7 @@ def main():
     print("This script will create or update the admin account below:")
     print(f"Email: {admin_email}")
     print(f"Username: {admin_username}")
-    print(f"Role: {ADMIN_ROLE}")
+    print(f"Role: {admin_role}")
     print(f"Database: {settings['mongo_db_name']}")
     print()
 
@@ -63,9 +71,10 @@ def main():
                     "$set": {
                         "username": admin_username,
                         "password_hash": password_hash,
-                        "role": ADMIN_ROLE,
+                        "role": admin_role,
                         "status": ADMIN_STATUS,
                         "is_active": True,
+                        "must_change_password": True,
                         "updated_at": now,
                     },
                     "$setOnInsert": {
@@ -83,9 +92,10 @@ def main():
                     "username": admin_username,
                     "email": admin_email,
                     "password_hash": password_hash,
-                    "role": ADMIN_ROLE,
+                    "role": admin_role,
                     "status": ADMIN_STATUS,
                     "is_active": True,
+                    "must_change_password": True,
                     "created_at": now,
                     "last_login": None,
                     "last_login_at": None,

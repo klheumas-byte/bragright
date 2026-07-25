@@ -93,7 +93,7 @@ test("reference Match Center details are present with real-data bindings", () =>
   assert.match(matches, /StatusPill label="Active Matches"[\s\S]*?viewCounts\.active/);
   assert.match(matches, /StatusPill label="Completed Matches"[\s\S]*?viewCounts\.completed/);
   assert.match(matches, /StatusPill label="Disputed Matches"[\s\S]*?viewCounts\.disputed/);
-  assert.match(matches, /title="Competitive Summary"/);
+  assert.match(matches, /title="Match statistics"/);
   assert.match(matches, /<CompetitiveSummary stats=\{competitiveStats\}/);
   assert.match(matches, /competitiveStats\.map\(\(stat\)/);
   assert.match(matches, /role="tablist"/);
@@ -114,7 +114,7 @@ test("match cards render You versus Opponent with avatars, metrics, status, and 
 
 test("priority pages reuse the My Matches arena motifs and icon system", () => {
   assert.match(dashboard, /<TrophyWatermark className="arena-hero-watermark" \/>/);
-  assert.match(dashboard, /<SidebarIcon name=\{action\.icon\}/);
+  assert.match(dashboard, /<SidebarIcon name=\{pendingActions\.length \? "clock" : "matches"\}/);
   assert.match(activity, /className="arena-hero-icon"/);
   assert.match(activity, /variant="challenge"/);
   assert.match(profileHero, /className="profile-hero-motif"/);

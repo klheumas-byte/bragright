@@ -22,6 +22,7 @@ from .routes.health import health_bp
 from .routes.matches import matches_bp, upload_proof
 from .routes.players import players_bp
 from .routes.profile import profile_bp
+from .routes.payments import payments_bp
 from .services.api_security import (
     ErrorCode,
     api_error,
@@ -126,12 +127,14 @@ def create_app(config_class=Config):
     app.register_blueprint(players_bp, url_prefix="/api/players")
     app.register_blueprint(profile_bp, url_prefix="/api/profile")
     app.register_blueprint(competitive_bp, url_prefix="/api")
+    app.register_blueprint(payments_bp, url_prefix="/api/payments")
     app.add_url_rule("/api/upload", view_func=upload_proof, methods=["POST"], endpoint="upload_proof_alias")
     app.extensions["rate_limiter"] = FixedWindowRateLimiter()
 
     rate_limited_endpoints = {
         "auth.register": ("auth", "RATE_LIMIT_AUTH"),
         "auth.login": ("auth", "RATE_LIMIT_AUTH"),
+        "auth.change_password": ("auth", "RATE_LIMIT_AUTH"),
         "admin.reset_admin_user_password": (
             "admin_password_reset",
             "RATE_LIMIT_ADMIN_RESET",
@@ -150,10 +153,21 @@ def create_app(config_class=Config):
             "match_mutation",
             "RATE_LIMIT_MATCH_MUTATION",
         ),
+        "payments.record_payment": ("payment_mutation", "RATE_LIMIT_MATCH_MUTATION"),
+        "payments.submit_remittance": ("payment_mutation", "RATE_LIMIT_MATCH_MUTATION"),
+        "payments.review_remittance": ("payment_mutation", "RATE_LIMIT_MATCH_MUTATION"),
+        "payments.reverse_payment": ("payment_mutation", "RATE_LIMIT_MATCH_MUTATION"),
+        "payments.verify_payment": ("payment_mutation", "RATE_LIMIT_MATCH_MUTATION"),
+        "payments.upload_payment_proof": ("upload", "RATE_LIMIT_UPLOAD"),
+        "payments.override_subscription_access": ("payment_mutation", "RATE_LIMIT_MATCH_MUTATION"),
     }
 
     query_parameter_allowlist = {
-        "competitive.get_leaderboard": {"page", "limit", "search", "player_id"},
+        "competitive.get_leaderboard": {
+            "page", "limit", "search", "player_id", "category", "scope",
+            "competition_id", "game", "minimum_matches",
+        },
+        "competitive.get_player_statistics": {"scope"},
         "players.list_players": {"page", "limit", "search"},
         "activity.get_my_activity": {"page", "limit", "category"},
         "profile.get_my_profile_matches": {"page", "limit"},
@@ -185,6 +199,11 @@ def create_app(config_class=Config):
             "page",
         },
         "admin.get_admin_disputes": {"page", "limit"},
+        "payments.get_my_subscription": {"billing_month"},
+        "payments.search_subscription_players": {"search", "billing_month", "subscription_status"},
+        "payments.list_payments": {"billing_month", "payment_method", "status", "officer_id", "player"},
+        "payments.payment_dashboard": {"billing_month", "officer_id", "payment_method", "payment_status", "subscription_status", "player"},
+        "payments.list_remittances": {"status", "billing_month", "officer_id"},
     }
 
     @app.before_request
@@ -245,6 +264,46 @@ def create_app(config_class=Config):
                 ErrorCode.VALIDATION_ERROR,
                 details={"parameters": unexpected_parameters},
             )
+
+    @app.before_request
+    def enforce_subscription_access():
+        endpoint = request.endpoint or ""
+        if (
+            not endpoint
+            or endpoint.startswith(("auth.", "health.", "payments.", "static"))
+            or not request.path.startswith("/api/")
+        ):
+            return None
+
+        from .routes.auth import get_current_user_from_request
+        from .services.admin_access import get_user_role
+        from .services.subscription_service import subscription_access
+
+        user, error_response, status_code = get_current_user_from_request()
+        if error_response:
+            # Public routes and their own decorators retain their existing behavior.
+            return None
+        role = get_user_role(user, app.config)
+        if role == "payment_officer":
+            return api_error(
+                "Payment Officers may only access authorized payment resources.",
+                403,
+                "insufficient_permissions",
+            )
+        if role != "player":
+            return None
+        access = subscription_access(app.config, user)
+        if access["allowed"]:
+            return None
+        return api_error(
+            "Your monthly subscription is required to access this feature.",
+            403,
+            "subscription_required",
+            details={
+                "status": access["status"],
+                "payment_path": "/payments/status",
+            },
+        )
 
     @app.after_request
     def secure_api_response(response):

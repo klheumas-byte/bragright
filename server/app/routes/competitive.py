@@ -10,6 +10,12 @@ from ..db import (
     get_users_collection,
 )
 from ..services.competitive_service import build_head_to_head, build_leaderboard, build_public_player_profile
+from ..services.statistics_service import (
+    LEADERBOARD_CATEGORIES,
+    MIN_RATE_MATCHES,
+    SUPPORTED_SCOPES,
+    build_player_statistics,
+)
 from ..services.api_security import api_error, pagination_metadata, parse_bounded_int_query
 
 
@@ -20,7 +26,10 @@ competitive_bp = Blueprint("competitive", __name__)
 def get_leaderboard():
     try:
         unsupported_parameters = sorted(
-            set(request.args) - {"page", "limit", "search", "player_id"}
+            set(request.args) - {
+                "page", "limit", "search", "player_id", "category", "scope",
+                "competition_id", "game", "minimum_matches",
+            }
         )
         if unsupported_parameters:
             return api_error(
@@ -40,9 +49,38 @@ def get_leaderboard():
             except InvalidId:
                 return api_error("Player ID is invalid.", 400)
 
+        category = str(request.args.get("category") or "ranking").strip().lower()
+        scope = str(request.args.get("scope") or "all_time").strip().lower()
+        if category not in LEADERBOARD_CATEGORIES:
+            return api_error("Leaderboard category is invalid.", 422)
+        if scope not in SUPPORTED_SCOPES:
+            return api_error("Statistics scope is invalid.", 422)
+        minimum_matches, minimum_error = parse_bounded_int_query(
+            "minimum_matches", default=MIN_RATE_MATCHES, maximum=1000
+        )
+        if minimum_error:
+            return minimum_error
+        competition_id = str(request.args.get("competition_id") or "").strip() or None
+        game = str(request.args.get("game") or "").strip() or None
+        if competition_id or game:
+            return api_error(
+                "Competition and game analytics are unavailable because this data model has no authoritative competition or game field.",
+                422,
+            )
+
         users = get_users_collection(config=current_app.config, logger=current_app.logger)
         matches = get_matches_collection(config=current_app.config, logger=current_app.logger)
-        leaderboard = build_leaderboard(users, matches)
+        leaderboard = build_leaderboard(
+            users, matches, category=category, scope=scope,
+            minimum_matches=minimum_matches,
+        )
+        top_goalscorers = sorted(
+            (entry for entry in leaderboard if entry["matches_played"] > 0),
+            key=lambda entry: (
+                -entry["goals_scored"], -entry["goal_difference"],
+                -entry["wins"], entry["username"].casefold(), entry["id"],
+            ),
+        )[:5]
         ranked_total = len(leaderboard)
         top_players = leaderboard[:3]
         current_player_index = next(
@@ -99,6 +137,15 @@ def get_leaderboard():
                     "nearby_players": nearby_players,
                     "ranked_total": ranked_total,
                     "search": search,
+                    "category": category,
+                    "scope": scope,
+                    "scope_label": leaderboard[0]["scope_label"] if leaderboard else {
+                        "all_time": "All time", "week": "Current week",
+                        "month": "Current month", "year": "Current year",
+                        "recent_5": "Recent 5", "recent_10": "Recent 10",
+                    }[scope],
+                    "minimum_matches": minimum_matches,
+                    "top_goalscorers": top_goalscorers,
                     "count": len(leaderboard_page),
                     **pagination_metadata(page=page, limit=limit, total=total),
                 },
@@ -164,6 +211,49 @@ def get_public_player_profile(player_id):
     except Exception:
         current_app.logger.exception("Unexpected error while loading player profile")
         return jsonify({"success": False, "message": "Could not load player profile."}), 500
+
+
+@competitive_bp.get("/players/<player_id>/statistics")
+def get_player_statistics(player_id):
+    try:
+        unsupported = sorted(set(request.args) - {"scope"})
+        if unsupported:
+            return api_error(
+                "The statistics query contains unsupported parameters.",
+                422,
+                details={"fields": unsupported},
+            )
+        scope = str(request.args.get("scope") or "all_time").strip().lower()
+        if scope not in SUPPORTED_SCOPES:
+            return api_error("Statistics scope is invalid.", 422)
+        try:
+            player_object_id = ObjectId(player_id)
+        except InvalidId:
+            return api_error("Player ID is invalid.", 400)
+        users = get_users_collection(config=current_app.config, logger=current_app.logger)
+        if not users.find_one(
+            {"_id": player_object_id, "role": "player", "status": {"$ne": "disabled"}},
+            {"_id": 1},
+        ):
+            return api_error("Player was not found.", 404)
+        matches = get_matches_collection(config=current_app.config, logger=current_app.logger)
+        documents = list(matches.find({
+            "$or": [
+                {"player_one_id": player_id}, {"player_two_id": player_id},
+                {"submitted_by": player_id}, {"opponent_id": player_id},
+            ]
+        }))
+        return jsonify({
+            "success": True,
+            "message": "Player statistics loaded successfully.",
+            "data": build_player_statistics(player_id, documents, scope=scope),
+        }), 200
+    except PyMongoError as error:
+        current_app.logger.exception("MongoDB error while loading player statistics")
+        return api_error(describe_mongo_error(error), 500)
+    except Exception:
+        current_app.logger.exception("Unexpected error while loading player statistics")
+        return api_error("Could not load player statistics.", 500)
 
 
 @competitive_bp.get("/head-to-head/<player_a_id>/<player_b_id>")

@@ -17,6 +17,15 @@ MATCH_STATUS_EXPIRED = "expired"
 
 MATCH_RESULT_SOURCE_PLAYER = "player"
 MATCH_RESULT_SOURCE_ADMIN = "admin"
+MATCH_ACTION_ROUTES = {
+    "match_request": "/matches/{match_id}/respond",
+    "result_required": "/matches/{match_id}/result/submit",
+    "result_awaiting_confirmation": "/matches/{match_id}/result/confirm",
+    "match_confirmed": "/dashboard/matches?matchId={match_id}",
+    "dispute_status": "/dashboard/matches?matchId={match_id}",
+    "match_resolved": "/dashboard/matches?matchId={match_id}",
+    "match_cancelled": "/dashboard/matches?matchId={match_id}",
+}
 
 PLAYER_VISIBLE_MATCH_STATUSES = {
     MATCH_STATUS_MATCH_REQUESTED,
@@ -94,6 +103,13 @@ def now_utc():
 
 def serialize_datetime(value):
     return value.isoformat() if value else None
+
+
+def build_match_action_url(action_type, match_id):
+    template = MATCH_ACTION_ROUTES.get(
+        action_type, "/dashboard/matches?matchId={match_id}"
+    )
+    return template.format(match_id=match_id)
 
 
 def normalize_match_status(status):
@@ -386,6 +402,9 @@ def serialize_match(
         "confirmed_by": match_document.get("confirmed_by"),
         "disputed_by": match_document.get("disputed_by"),
         "reviewed_by": match_document.get("reviewed_by"),
+        "accepted_by": match_document.get("accepted_by"),
+        "declined_by": match_document.get("declined_by"),
+        "cancelled_by": match_document.get("cancelled_by"),
         "status": status,
         "previous_status": normalize_match_status(match_document.get("previous_status")) if match_document.get("previous_status") else None,
         "display_status": format_match_status(status),
@@ -397,8 +416,21 @@ def serialize_match(
         "dispute_note": match_document.get("dispute_note"),
         "resolution_note": match_document.get("resolution_note"),
         "resolution_action": match_document.get("resolution_action"),
+        "game": match_document.get("game") or "",
+        "match_type": match_document.get("match_type") or "Competitive Match",
+        "request_message": match_document.get("request_message") or "",
+        "decline_reason": match_document.get("decline_reason"),
+        "decline_note": match_document.get("decline_note") or "",
+        "rejection_reason": match_document.get("rejection_reason"),
+        "rejection_explanation": match_document.get("rejection_explanation") or "",
+        "rejection_proof_image_url": match_document.get("rejection_proof_image_url"),
+        "proposed_player_one_score": match_document.get("proposed_player_one_score"),
+        "proposed_player_two_score": match_document.get("proposed_player_two_score"),
         "created_at": serialize_datetime(match_document.get("created_at")),
         "accepted_at": serialize_datetime(match_document.get("accepted_at")),
+        "scheduled_at": serialize_datetime(match_document.get("scheduled_at")),
+        "request_expires_at": serialize_datetime(match_document.get("request_expires_at")),
+        "played_at": serialize_datetime(match_document.get("played_at")),
         "declined_at": serialize_datetime(match_document.get("declined_at")),
         "result_submitted_at": serialize_datetime(match_document.get("result_submitted_at")),
         "confirmed_at": serialize_datetime(match_document.get("confirmed_at")),
@@ -429,7 +461,40 @@ def serialize_match(
         "can_confirm": can_confirm,
         "can_dispute": can_dispute,
         "can_cancel": can_cancel,
+        "status_message": build_actor_status_message(match_document, status),
     }
+
+
+def build_actor_status_message(match_document, status=None):
+    players = resolve_match_players(match_document)
+    status = status or resolve_actionable_status(match_document)
+    names = {
+        players["player_one_id"]: players["player_one_name"],
+        players["player_two_id"]: players["player_two_name"],
+    }
+    actor_name = lambda field, fallback="A player": names.get(match_document.get(field), fallback)
+    if status == MATCH_STATUS_MATCH_REQUESTED:
+        return f"Awaiting {names.get(get_match_requested_to(match_document), 'opponent')}'s response"
+    if status == MATCH_STATUS_PENDING_RESULT:
+        return f"Accepted by {actor_name('accepted_by')}"
+    if status == MATCH_STATUS_PENDING_CONFIRMATION:
+        confirmer_id = (
+            players["player_two_id"]
+            if match_document.get("result_submitted_by") == players["player_one_id"]
+            else players["player_one_id"]
+        )
+        return f"Awaiting {names.get(confirmer_id, 'opponent')}'s confirmation"
+    if status == MATCH_STATUS_CONFIRMED:
+        return f"Result confirmed by {actor_name('confirmed_by', 'an authorized reviewer')}"
+    if status == MATCH_STATUS_DISPUTED:
+        return f"Result rejected by {actor_name('disputed_by')}"
+    if status == MATCH_STATUS_CANCELLED:
+        if match_document.get("declined_by"):
+            return f"{actor_name('declined_by')} declined the match request"
+        return f"Match cancelled by {actor_name('cancelled_by')}"
+    if status == MATCH_STATUS_EXPIRED:
+        return "Automatically cancelled after expiry"
+    return format_match_status(status)
 
 
 def build_score_line(player_score, opponent_score):
@@ -527,7 +592,7 @@ def create_match_action_items(current_user, matches_collection, *, is_admin=Fals
                     "title": "New match request",
                     "message": f"Match request from {players['player_one_name']}",
                     "related_match_id": match_id,
-                    "action_url": f"/dashboard/matches?matchId={match_id}",
+                    "action_url": build_match_action_url("match_request", match_id),
                     "created_at": serialize_datetime(match.get("created_at")),
                 }
             )
@@ -545,8 +610,25 @@ def create_match_action_items(current_user, matches_collection, *, is_admin=Fals
                     "title": "Result awaiting your confirmation",
                     "message": f"{submitter_name} submitted a result that needs your confirmation.",
                     "related_match_id": match_id,
-                    "action_url": f"/dashboard/matches?matchId={match_id}",
+                    "action_url": build_match_action_url("result_awaiting_confirmation", match_id),
                     "created_at": serialize_datetime(match.get("result_submitted_at") or match.get("updated_at")),
+                }
+            )
+
+        if (
+            status == MATCH_STATUS_PENDING_RESULT
+            and match.get("accepted_at")
+            and current_user_id in {players["player_one_id"], players["player_two_id"]}
+        ):
+            items.append(
+                {
+                    "id": f"result-required-{match_id}",
+                    "type": "result_required",
+                    "title": "Match result required",
+                    "message": f"Enter the result for {players['player_one_name']} vs {players['player_two_name']}.",
+                    "related_match_id": match_id,
+                    "action_url": build_match_action_url("result_required", match_id),
+                    "created_at": serialize_datetime(match.get("accepted_at") or match.get("updated_at")),
                 }
             )
 
@@ -558,7 +640,7 @@ def create_match_action_items(current_user, matches_collection, *, is_admin=Fals
                     "title": "Match disputed",
                     "message": f"{players['player_one_name']} vs {players['player_two_name']} is waiting for admin review.",
                     "related_match_id": match_id,
-                    "action_url": f"/dashboard/matches?matchId={match_id}",
+                    "action_url": build_match_action_url("dispute_status", match_id),
                     "created_at": serialize_datetime(match.get("disputed_at") or match.get("updated_at")),
                 }
             )
@@ -568,6 +650,20 @@ def create_match_action_items(current_user, matches_collection, *, is_admin=Fals
             MATCH_STATUS_REJECTED,
             MATCH_STATUS_CANCELLED,
         } and match.get("updated_at"):
+            if status == MATCH_STATUS_CONFIRMED:
+                items.append(
+                    {
+                        "id": f"match-confirmed-{match_id}",
+                        "type": "match_confirmed",
+                        "title": "Match result confirmed",
+                        "message": build_actor_status_message(match, status),
+                        "related_match_id": match_id,
+                        "action_url": build_match_action_url("match_confirmed", match_id),
+                        "created_at": serialize_datetime(
+                            match.get("confirmed_at") or match.get("reviewed_at") or match.get("updated_at")
+                        ),
+                    }
+                )
             if status == MATCH_STATUS_CONFIRMED and match.get("reviewed_by") and match.get("result_submitted_by") == current_user_id:
                 items.append(
                     {
@@ -576,7 +672,7 @@ def create_match_action_items(current_user, matches_collection, *, is_admin=Fals
                         "title": "Match resolved",
                         "message": "An admin resolved one of your disputed matches.",
                         "related_match_id": match_id,
-                        "action_url": f"/dashboard/matches?matchId={match_id}",
+                        "action_url": build_match_action_url("match_resolved", match_id),
                         "created_at": serialize_datetime(match.get("reviewed_at") or match.get("updated_at")),
                     }
                 )
@@ -586,9 +682,9 @@ def create_match_action_items(current_user, matches_collection, *, is_admin=Fals
                         "id": f"match-cancelled-{match_id}",
                         "type": "match_cancelled",
                         "title": "Match cancelled",
-                        "message": f"{players['player_one_name']} vs {players['player_two_name']} was cancelled.",
+                        "message": build_actor_status_message(match, status),
                         "related_match_id": match_id,
-                        "action_url": f"/dashboard/matches?matchId={match_id}",
+                        "action_url": build_match_action_url("match_cancelled", match_id),
                         "created_at": serialize_datetime(match.get("cancelled_at") or match.get("updated_at")),
                     }
                 )
@@ -615,6 +711,7 @@ def build_action_payload(items):
     sorted_items = sorted(deduplicated_items, key=lambda item: item.get("created_at") or "", reverse=True)
     match_requests_count = sum(1 for item in sorted_items if item["type"] == "match_request")
     pending_confirmations_count = sum(1 for item in sorted_items if item["type"] == "result_awaiting_confirmation")
+    result_required_count = sum(1 for item in sorted_items if item["type"] == "result_required")
     disputed_matches_count = sum(
         1 for item in sorted_items if item["type"] in {"dispute_requiring_review", "dispute_status"}
     )
@@ -623,6 +720,7 @@ def build_action_payload(items):
         "match_requests_count": match_requests_count,
         "pending_confirmations_count": pending_confirmations_count,
         "disputed_matches_count": disputed_matches_count,
-        "total_actions_count": match_requests_count + pending_confirmations_count + disputed_matches_count,
+        "result_required_count": result_required_count,
+        "total_actions_count": match_requests_count + result_required_count + pending_confirmations_count + disputed_matches_count,
         "items": sorted_items,
     }

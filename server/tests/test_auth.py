@@ -171,6 +171,30 @@ def test_untrusted_browser_origin_cannot_refresh(client, create_user):
     assert response.json["error"]["code"] == "UNTRUSTED_ORIGIN"
 
 
+def test_local_vite_fallback_port_can_login_in_debug_mode(client, create_user):
+    create_user(PLAYER_EMAIL, password=PLAYER_PASSWORD)
+    response = client.post(
+        "/api/auth/login",
+        json={"email": PLAYER_EMAIL, "password": PLAYER_PASSWORD},
+        headers={"Origin": "http://localhost:5174"},
+    )
+    assert response.status_code == 200
+
+
+def test_local_vite_fallback_port_is_not_implicitly_trusted_in_production(
+    app, client, create_user
+):
+    create_user(PLAYER_EMAIL, password=PLAYER_PASSWORD)
+    app.config.update(IS_PRODUCTION=True, DEBUG=False)
+    response = client.post(
+        "/api/auth/login",
+        json={"email": PLAYER_EMAIL, "password": PLAYER_PASSWORD},
+        headers={"Origin": "http://localhost:5174"},
+    )
+    assert response.status_code == 403
+    assert response.json["error"]["code"] == "UNTRUSTED_ORIGIN"
+
+
 def test_logout_revokes_refresh_and_access_session(client, create_user, sessions):
     user = create_user(PLAYER_EMAIL, password=PLAYER_PASSWORD)
     login_response = _login(client)
@@ -305,3 +329,160 @@ def test_registration_cannot_create_admin_through_email_or_payload(client, users
     assert response.status_code == 422
     assert response.json["error"]["code"] == "VALIDATION_ERROR"
     assert created_user is None
+
+
+def test_user_chooses_preferred_password_and_other_sessions_are_revoked(
+    app, create_user, sessions, users
+):
+    user = create_user(PLAYER_EMAIL, password=PLAYER_PASSWORD, role="payment_officer")
+    users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"profile_image": "profile.png"}},
+    )
+    first_client = app.test_client()
+    second_client = app.test_client()
+    first_login = _login(first_client)
+    second_login = _login(second_client)
+    first_token = first_login.json["access_token"]
+    second_token = second_login.json["access_token"]
+
+    changed = first_client.post(
+        "/api/auth/password",
+        json={
+            "current_password": PLAYER_PASSWORD,
+            "new_password": "my-preferred-password-2026",
+            "confirm_password": "my-preferred-password-2026",
+        },
+        headers=_bearer(first_token),
+    )
+
+    assert changed.status_code == 200
+    assert changed.json["user"]["role"] == "payment_officer"
+    assert changed.json["user"]["must_change_password"] is False
+    assert first_client.get("/api/auth/me", headers=_bearer(first_token)).status_code == 200
+    stale_session = second_client.get("/api/auth/me", headers=_bearer(second_token))
+    assert stale_session.status_code == 401
+    assert stale_session.json["error"]["code"] == "SESSION_REVOKED"
+    assert _login(app.test_client(), password=PLAYER_PASSWORD).status_code == 401
+    assert _login(
+        app.test_client(), password="my-preferred-password-2026"
+    ).status_code == 200
+    assert sessions.count_documents(
+        {"user_id": str(user["_id"]), "revoked_at": None}
+    ) >= 1
+    stored_user = users.find_one({"_id": user["_id"]})
+    assert stored_user["role"] == "payment_officer"
+    assert stored_user["profile_image"] == "profile.png"
+
+
+def test_password_change_validates_current_password_and_confirmation(client, create_user):
+    create_user(PLAYER_EMAIL, password=PLAYER_PASSWORD)
+    token = _login(client).json["access_token"]
+
+    wrong_current = client.post(
+        "/api/auth/password",
+        json={
+            "current_password": "wrong-current-password",
+            "new_password": "another-preferred-password",
+            "confirm_password": "another-preferred-password",
+        },
+        headers=_bearer(token),
+    )
+    mismatch = client.post(
+        "/api/auth/password",
+        json={
+            "current_password": PLAYER_PASSWORD,
+            "new_password": "another-preferred-password",
+            "confirm_password": "different-confirmation-value",
+        },
+        headers=_bearer(token),
+    )
+    too_short = client.post(
+        "/api/auth/password",
+        json={
+            "current_password": PLAYER_PASSWORD,
+            "new_password": "short7",
+            "confirm_password": "short7",
+        },
+        headers=_bearer(token),
+    )
+    unchanged = client.post(
+        "/api/auth/password",
+        json={
+            "current_password": PLAYER_PASSWORD,
+            "new_password": PLAYER_PASSWORD,
+            "confirm_password": PLAYER_PASSWORD,
+        },
+        headers=_bearer(token),
+    )
+
+    assert wrong_current.status_code == 403
+    assert wrong_current.json["error"]["code"] == "INVALID_CURRENT_PASSWORD"
+    assert mismatch.status_code == 422
+    assert too_short.status_code == 422
+    assert too_short.json["error"]["code"] == "VALIDATION_ERROR"
+    assert unchanged.status_code == 422
+    assert unchanged.json["error"]["code"] == "PASSWORD_UNCHANGED"
+
+
+def test_role_validation_accepts_centralized_payment_role(client, create_user, users):
+    target = create_user(PLAYER_EMAIL, password=PLAYER_PASSWORD, role="player")
+    create_user("admin@example.com", password=PLAYER_PASSWORD, role="admin")
+    admin_token = _login(client, email="admin@example.com").json["access_token"]
+
+    response = client.patch(
+        f"/api/admin/users/{target['_id']}/role",
+        json={"role": "payment_officer"},
+        headers=_bearer(admin_token),
+    )
+
+    assert response.status_code == 200
+    assert users.find_one({"_id": target["_id"]})["role"] == "payment_officer"
+
+
+def test_last_active_superadmin_cannot_be_demoted_or_restricted(client, create_user):
+    super_admin = create_user(
+        "only-super@example.com",
+        password=PLAYER_PASSWORD,
+        role="super_admin",
+    )
+    token = _login(client, email="only-super@example.com").json["access_token"]
+    headers = _bearer(token)
+
+    demoted = client.patch(
+        f"/api/admin/users/{super_admin['_id']}/role",
+        json={"role": "admin"},
+        headers=headers,
+    )
+    suspended = client.patch(
+        f"/api/admin/users/{super_admin['_id']}/status",
+        json={"status": "suspended"},
+        headers=headers,
+    )
+
+    assert demoted.status_code == 400
+    assert suspended.status_code == 400
+
+
+def test_admin_reset_requires_user_to_choose_password(
+    client, create_user, users
+):
+    target = create_user(PLAYER_EMAIL, password=PLAYER_PASSWORD)
+    create_user("admin@example.com", password=PLAYER_PASSWORD, role="admin")
+    admin_token = _login(client, email="admin@example.com").json["access_token"]
+
+    reset = client.patch(
+        f"/api/admin/users/{target['_id']}/password",
+        json={"new_password": "temporary-reset-password"},
+        headers=_bearer(admin_token),
+    )
+    reset_login = _login(
+        client,
+        email=PLAYER_EMAIL,
+        password="temporary-reset-password",
+    )
+
+    assert reset.status_code == 200
+    assert users.find_one({"_id": target["_id"]})["must_change_password"] is True
+    assert reset_login.status_code == 200
+    assert reset_login.json["user"]["must_change_password"] is True

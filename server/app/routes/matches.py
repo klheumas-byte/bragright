@@ -255,7 +255,45 @@ def _parse_schedule_payload(payload):
     if not opponent_id and not opponent_username:
         return None, "Opponent is required."
 
-    return {"opponent_id": opponent_id, "opponent_username": opponent_username}, None
+    game = " ".join(str(payload.get("game") or "").strip().split())
+    match_type = " ".join(str(payload.get("match_type") or "Competitive Match").strip().split())
+    request_message = str(payload.get("request_message") or "").strip()
+    if len(game) > 80 or len(match_type) > 80:
+        return None, "Game and match type must be 80 characters or fewer."
+    if len(request_message) > 500:
+        return None, "Match message must be 500 characters or fewer."
+    scheduled_at = None
+    raw_scheduled_at = str(payload.get("scheduled_at") or "").strip()
+    if raw_scheduled_at:
+        try:
+            scheduled_at = datetime.fromisoformat(raw_scheduled_at.replace("Z", "+00:00"))
+            if scheduled_at.tzinfo is None:
+                scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+            scheduled_at = scheduled_at.astimezone(timezone.utc)
+        except ValueError:
+            return None, "Scheduled date and time are invalid."
+    return {
+        "opponent_id": opponent_id,
+        "opponent_username": opponent_username,
+        "game": game,
+        "match_type": match_type or "Competitive Match",
+        "request_message": request_message,
+        "scheduled_at": scheduled_at,
+    }, None
+
+
+def _parse_decline_payload(payload):
+    allowed_reasons = {
+        "unavailable", "incorrect_details", "wrong_opponent", "duplicate",
+        "already_played", "created_by_mistake", "other",
+    }
+    reason = str(payload.get("reason") or "").strip().lower()
+    note = str(payload.get("note") or "").strip()
+    if reason not in allowed_reasons:
+        return None, "Choose a valid decline reason."
+    if len(note) > 500:
+        return None, "Decline note must be 500 characters or fewer."
+    return {"reason": reason, "note": note}, None
 
 
 def _parse_submit_result_payload(match_document, payload):
@@ -269,19 +307,58 @@ def _parse_submit_result_payload(match_document, payload):
         return None, validation_error
 
     proof_image_url = str(payload.get("proof_image_url") or "").strip() or None
+    played_at = now_utc()
+    raw_played_at = str(payload.get("played_at") or "").strip()
+    if raw_played_at:
+        try:
+            played_at = datetime.fromisoformat(raw_played_at.replace("Z", "+00:00"))
+            if played_at.tzinfo is None:
+                played_at = played_at.replace(tzinfo=timezone.utc)
+            played_at = played_at.astimezone(timezone.utc)
+        except ValueError:
+            return None, "Played date and time are invalid."
+        if played_at > now_utc() + timedelta(minutes=5):
+            return None, "Played date and time cannot be in the future."
     return {
         **validated,
         "proof_image_url": proof_image_url,
+        "played_at": played_at,
     }, None
 
 
 def _parse_dispute_payload(payload):
-    dispute_note = str(payload.get("dispute_note", "")).strip()
+    allowed_reasons = {
+        "my_score_wrong", "opponent_score_wrong", "wrong_winner",
+        "match_not_played", "duplicate_result", "wrong_match", "other",
+    }
+    rejection_reason = str(payload.get("rejection_reason") or "other").strip().lower()
+    if rejection_reason not in allowed_reasons:
+        return None, "Choose a valid rejection reason."
+    explanation = str(payload.get("explanation") or "").strip()
+    dispute_note = str(payload.get("dispute_note") or explanation).strip()
     if not dispute_note:
-        return None, "Dispute note is required."
+        return None, "An explanation is required."
     if len(dispute_note) > 500:
         return None, "Dispute note must be 500 characters or fewer."
-    return {"dispute_note": dispute_note}, None
+    proposed_scores = []
+    for field in ("proposed_player_one_score", "proposed_player_two_score"):
+        raw = payload.get(field)
+        if raw in {None, ""}:
+            proposed_scores.append(None)
+            continue
+        if isinstance(raw, bool) or not str(raw).strip().isdigit():
+            return None, "Proposed scores must be non-negative whole numbers."
+        proposed_scores.append(int(raw))
+    if (proposed_scores[0] is None) != (proposed_scores[1] is None):
+        return None, "Provide both proposed scores or leave both blank."
+    return {
+        "dispute_note": dispute_note,
+        "rejection_reason": rejection_reason,
+        "rejection_explanation": explanation or dispute_note,
+        "proposed_player_one_score": proposed_scores[0],
+        "proposed_player_two_score": proposed_scores[1],
+        "rejection_proof_image_url": str(payload.get("proof_image_url") or "").strip() or None,
+    }, None
 
 
 def _find_duplicate_match(player_one_id, player_two_id):
@@ -600,7 +677,10 @@ def schedule_match():
             return error_response, status_code
 
         payload, body_error = get_json_object(
-            allowed_fields={"opponent_id", "opponent_username"}
+            allowed_fields={
+                "opponent_id", "opponent_username", "game", "match_type",
+                "scheduled_at", "request_message",
+            }
         )
         if body_error:
             return body_error
@@ -659,6 +739,9 @@ def schedule_match():
             "confirmed_by": None,
             "disputed_by": None,
             "reviewed_by": None,
+            "accepted_by": None,
+            "declined_by": None,
+            "cancelled_by": None,
             "status": MATCH_STATUS_MATCH_REQUESTED,
             "previous_status": None,
             "player_one_score": None,
@@ -669,6 +752,16 @@ def schedule_match():
             "dispute_note": None,
             "resolution_note": None,
             "resolution_action": None,
+            "game": parsed_payload["game"],
+            "match_type": parsed_payload["match_type"],
+            "scheduled_at": parsed_payload["scheduled_at"],
+            "request_message": parsed_payload["request_message"],
+            "request_expires_at": created_at + timedelta(days=7),
+            "played_at": None,
+            "decline_reason": None,
+            "decline_note": None,
+            "rejection_reason": None,
+            "rejection_explanation": None,
             "created_at": created_at,
             "accepted_at": None,
             "declined_at": None,
@@ -757,6 +850,7 @@ def submit_match_result(match_id):
                 "player_two_score",
                 "winner_id",
                 "proof_image_url",
+                "played_at",
             }
         )
         if body_error:
@@ -780,6 +874,7 @@ def submit_match_result(match_id):
             "player_two_score": parsed_payload["player_two_score"],
             "winner_id": parsed_payload["winner_id"],
             "proof_image_url": parsed_payload["proof_image_url"],
+            "played_at": parsed_payload["played_at"],
             "result_source": MATCH_RESULT_SOURCE_PLAYER,
             "result_submitted_by": str(current_user["_id"]),
             "result_submitted_at": submitted_at,
@@ -795,7 +890,12 @@ def submit_match_result(match_id):
             "updated_at": submitted_at,
         }
 
-        matches.update_one({"_id": match["_id"]}, {"$set": updated_fields})
+        update_result = matches.update_one(
+            {"_id": match["_id"], "status": match.get("status")},
+            {"$set": updated_fields},
+        )
+        if update_result.matched_count != 1:
+            return _json_error("This match changed before the result was submitted. Refresh and try again.", 409, code="stale_match_action")
         updated_match = matches.find_one({"_id": match["_id"]})
 
         record_activity(
@@ -873,23 +973,40 @@ def accept_match(match_id):
                 }
             ), 200
 
+        expires_at = match.get("request_expires_at")
+        if expires_at and expires_at <= now_utc():
+            expired_at = now_utc()
+            matches.update_one(
+                {"_id": match["_id"], "status": match.get("status")},
+                {"$set": {
+                    "previous_status": match.get("status"),
+                    "status": MATCH_STATUS_EXPIRED,
+                    "expired_at": expired_at,
+                    "updated_at": expired_at,
+                }},
+            )
+            return _json_error("This match request has expired.", 409, code="stale_match_action")
+
         transition_error = _ensure_transition(match, MATCH_STATUS_PENDING_RESULT)
         if transition_error:
             return transition_error
 
         accepted_at = now_utc()
-        matches.update_one(
-            {"_id": match["_id"]},
+        update_result = matches.update_one(
+            {"_id": match["_id"], "status": match.get("status")},
             {
                 "$set": {
                     "previous_status": match.get("status"),
                     "status": MATCH_STATUS_PENDING_RESULT,
                     "accepted_at": accepted_at,
+                    "accepted_by": str(current_user["_id"]),
                     "declined_at": None,
                     "updated_at": accepted_at,
                 }
             },
         )
+        if update_result.matched_count != 1:
+            return _json_error("This match request was already handled.", 409, code="stale_match_action")
         updated_match = matches.find_one({"_id": match["_id"]})
 
         record_activity(
@@ -955,26 +1072,43 @@ def decline_match(match_id):
         if transition_error:
             return transition_error
 
+        payload, body_error = get_json_object(allowed_fields={"reason", "note"})
+        if body_error:
+            return body_error
+        parsed_payload, validation_error = _parse_decline_payload(payload)
+        if validation_error:
+            return _json_error(validation_error, 422)
+
         declined_at = now_utc()
-        matches.update_one(
-            {"_id": match["_id"]},
+        update_result = matches.update_one(
+            {"_id": match["_id"], "status": match.get("status")},
             {
                 "$set": {
                     "previous_status": match.get("status"),
                     "status": MATCH_STATUS_CANCELLED,
                     "declined_at": declined_at,
+                    "declined_by": str(current_user["_id"]),
+                    "cancelled_by": str(current_user["_id"]),
+                    "decline_reason": parsed_payload["reason"],
+                    "decline_note": parsed_payload["note"],
                     "cancelled_at": declined_at,
                     "updated_at": declined_at,
                 }
             },
         )
+        if update_result.matched_count != 1:
+            return _json_error("This match request was already handled.", 409, code="stale_match_action")
         updated_match = matches.find_one({"_id": match["_id"]})
 
         record_activity(
             user=serialize_user(current_user),
             action_type="match_request_declined",
             action_label="Match request declined",
-            details={"match_id": str(match["_id"])},
+            details={
+                "match_id": str(match["_id"]),
+                "reason": parsed_payload["reason"],
+                "note": parsed_payload["note"],
+            },
         )
 
         serialized_match = serialize_match(updated_match, str(current_user["_id"]))
@@ -1163,7 +1297,12 @@ def confirm_match(match_id):
             "updated_at": confirmed_at,
         }
 
-        matches.update_one({"_id": match["_id"]}, {"$set": updated_fields})
+        update_result = matches.update_one(
+            {"_id": match["_id"], "status": match.get("status")},
+            {"$set": updated_fields},
+        )
+        if update_result.matched_count != 1:
+            return _json_error("This result was already handled.", 409, code="stale_match_action")
         updated_match = matches.find_one({"_id": match["_id"]})
 
         record_activity(
@@ -1229,13 +1368,24 @@ def dispute_match(match_id):
             return transition_error
 
         payload, body_error = get_json_object(
-            allowed_fields={"dispute_note"}
+            allowed_fields={
+                "dispute_note", "rejection_reason", "explanation",
+                "proposed_player_one_score", "proposed_player_two_score",
+                "proof_image_url",
+            }
         )
         if body_error:
             return body_error
         parsed_payload, validation_error = _parse_dispute_payload(payload)
         if validation_error:
             return _json_error(validation_error, 400)
+        proof_error = _claim_proof_upload(
+            parsed_payload["rejection_proof_image_url"],
+            str(current_user["_id"]),
+            str(match["_id"]),
+        )
+        if proof_error:
+            return proof_error
 
         disputed_at = now_utc()
         updated_fields = {
@@ -1244,10 +1394,20 @@ def dispute_match(match_id):
             "disputed_by": str(current_user["_id"]),
             "disputed_at": disputed_at,
             "dispute_note": parsed_payload["dispute_note"],
+            "rejection_reason": parsed_payload["rejection_reason"],
+            "rejection_explanation": parsed_payload["rejection_explanation"],
+            "proposed_player_one_score": parsed_payload["proposed_player_one_score"],
+            "proposed_player_two_score": parsed_payload["proposed_player_two_score"],
+            "rejection_proof_image_url": parsed_payload["rejection_proof_image_url"],
             "updated_at": disputed_at,
         }
 
-        matches.update_one({"_id": match["_id"]}, {"$set": updated_fields})
+        update_result = matches.update_one(
+            {"_id": match["_id"], "status": match.get("status")},
+            {"$set": updated_fields},
+        )
+        if update_result.matched_count != 1:
+            return _json_error("This result was already handled.", 409, code="stale_match_action")
         updated_match = matches.find_one({"_id": match["_id"]})
 
         record_activity(
@@ -1257,6 +1417,7 @@ def dispute_match(match_id):
             details={
                 "match_id": str(match["_id"]),
                 "dispute_note": parsed_payload["dispute_note"],
+                "rejection_reason": parsed_payload["rejection_reason"],
             },
         )
 
@@ -1312,17 +1473,20 @@ def cancel_match(match_id):
             return transition_error
 
         cancelled_at = now_utc()
-        matches.update_one(
-            {"_id": match["_id"]},
+        update_result = matches.update_one(
+            {"_id": match["_id"], "status": match.get("status")},
             {
                 "$set": {
                     "previous_status": match.get("status"),
                     "status": MATCH_STATUS_CANCELLED,
+                    "cancelled_by": str(current_user["_id"]),
                     "cancelled_at": cancelled_at,
                     "updated_at": cancelled_at,
                 }
             },
         )
+        if update_result.matched_count != 1:
+            return _json_error("This match was already changed.", 409, code="stale_match_action")
         updated_match = matches.find_one({"_id": match["_id"]})
 
         record_activity(

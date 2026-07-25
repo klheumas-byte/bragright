@@ -48,6 +48,12 @@ export function normalizeLeaderboardPlayer(player) {
     win_rate: Number.isFinite(Number(player?.win_rate))
       ? Number(player.win_rate)
       : 0,
+    goals_scored: toCount(player?.goals_scored),
+    goals_conceded: toCount(player?.goals_conceded),
+    goal_difference: toNumber(player?.goal_difference),
+    clean_sheets: toCount(player?.clean_sheets),
+    average_goals_scored: toNumber(player?.average_goals_scored),
+    average_goals_conceded: toNumber(player?.average_goals_conceded),
   };
 }
 
@@ -81,4 +87,9 @@ function toCount(value) {
 function toPositive(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function toNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
 }

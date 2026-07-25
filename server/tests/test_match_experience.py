@@ -162,8 +162,17 @@ def test_decline_cancel_and_dispute_workflows_reject_duplicate_actions(
 
     declined = _schedule(client, alpha_headers, beta["_id"])
     declined_id = declined["id"]
-    assert client.post(f"/api/matches/{declined_id}/decline", headers=beta_headers).status_code == 200
-    assert client.post(f"/api/matches/{declined_id}/decline", headers=beta_headers).status_code == 400
+    decline_payload = {"reason": "unavailable", "note": "Schedule conflict"}
+    assert client.post(
+        f"/api/matches/{declined_id}/decline",
+        headers=beta_headers,
+        json=decline_payload,
+    ).status_code == 200
+    assert client.post(
+        f"/api/matches/{declined_id}/decline",
+        headers=beta_headers,
+        json=decline_payload,
+    ).status_code == 400
 
     cancelled = _schedule(client, alpha_headers, beta["_id"])
     cancelled_id = cancelled["id"]

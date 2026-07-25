@@ -36,11 +36,21 @@ test("win rate protects zero and preserves authoritative rate", () => {
 test("pending actions hide completed, unauthorized, and expired items", () => {
   const actions = getPendingPlayerActions([
     { id: "valid", type: "match_request" },
+    { id: "result", type: "result_required" },
     { id: "done", completed: true },
     { id: "forbidden", can_act: false },
     { id: "expired", expires_at: "2020-01-01T00:00:00Z" },
   ], new Date("2026-01-01T00:00:00Z").getTime());
-  assert.deepEqual(actions.map((item) => item.id), ["valid"]);
+  assert.deepEqual(actions.map((item) => item.id), ["valid", "result"]);
+});
+
+test("core match actions prioritize confirmation, acceptance, then result entry", () => {
+  const actions = getPendingPlayerActions([
+    { id: "submit", type: "result_required", created_at: "2026-07-24T12:00:00Z" },
+    { id: "accept", type: "match_request", created_at: "2026-07-24T11:00:00Z" },
+    { id: "confirm", type: "result_awaiting_confirmation", created_at: "2026-07-24T10:00:00Z" },
+  ]);
+  assert.deepEqual(actions.map((item) => item.id), ["confirm", "accept", "submit"]);
 });
 
 test("next best action follows dispute, confirmation, submission, request priority", () => {

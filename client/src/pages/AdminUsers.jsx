@@ -95,7 +95,7 @@ export default function AdminUsers() {
       setActiveActionKey(`${user.id}:role`);
       const response = await trackLoading(() => updateAdminUserRole(user.id, nextRole));
       syncUpdatedUser(response.data);
-      setFeedback({ type: "success", message: nextRole === "admin" ? "Role updated. User promoted to admin." : "Role updated." });
+      setFeedback({ type: "success", message: ["admin", "super_admin"].includes(nextRole) ? "Role updated. User promoted to Super Admin." : "Role updated." });
     } catch (error) {
       setFeedback({ type: "error", message: error.message });
       await loadUsers();
@@ -109,12 +109,12 @@ export default function AdminUsers() {
       return;
     }
 
-    if (nextRole === "admin" && user.role !== "admin") {
+    if (["admin", "super_admin"].includes(nextRole) && !["admin", "super_admin"].includes(user.role)) {
       setConfirmationState({
         isOpen: true,
-        title: `Promote ${user.username} to admin?`,
-        description: "Admins gain access to dispute moderation, user management, and admin dashboard controls.",
-        confirmLabel: "Promote to admin",
+        title: `Promote ${user.username} to Super Admin?`,
+        description: "Super Admins gain complete payment, dispute, user, and system oversight.",
+        confirmLabel: "Promote to Super Admin",
         action: () => executeRoleChange(user, nextRole),
       });
       return;
@@ -132,7 +132,7 @@ export default function AdminUsers() {
       syncUpdatedUser(response.data);
       setFeedback({
         type: "success",
-        message: nextStatus === "disabled" ? "User disabled." : "User enabled.",
+        message: nextStatus === "active" ? "User restored." : `User marked ${nextStatus}.`,
       });
     } catch (error) {
       setFeedback({ type: "error", message: error.message });
@@ -142,15 +142,14 @@ export default function AdminUsers() {
     }
   }
 
-  function handleStatusToggle(user) {
-    const nextStatus = user.status === "active" ? "disabled" : "active";
-
-    if (nextStatus === "disabled") {
+  function handleStatusSelection(user, nextStatus) {
+    if (!nextStatus || nextStatus === user.status) return;
+    if (nextStatus !== "active") {
       setConfirmationState({
         isOpen: true,
-        title: `Disable ${user.username}?`,
-        description: "Disabled users can no longer sign in or access their BragRight account until an admin re-enables them.",
-        confirmLabel: "Disable user",
+        title: `Mark ${user.username} as ${nextStatus}?`,
+        description: "This security restriction blocks sign-in but preserves payment, match, and audit history.",
+        confirmLabel: `Confirm ${nextStatus}`,
         action: () => executeStatusChange(user, nextStatus),
       });
       return;
@@ -253,7 +252,7 @@ export default function AdminUsers() {
         <div className="panel-header">
           <div>
             <p className="panel-kicker">Create User</p>
-            <h2 className="panel-title">Add a player or admin</h2>
+            <h2 className="panel-title">Add an account</h2>
           </div>
         </div>
 
@@ -287,7 +286,8 @@ export default function AdminUsers() {
             Role
             <select name="role" value={createUserValues.role} onChange={handleCreateUserChange} disabled={isCreatingUser}>
               <option value="player">Player</option>
-              <option value="admin">Admin</option>
+              <option value="payment_officer">Payment Officer</option>
+              <option value="super_admin">Super Admin</option>
             </select>
           </label>
 
@@ -320,7 +320,9 @@ export default function AdminUsers() {
             <select name="role" value={filters.role} onChange={handleFilterChange}>
               <option value="all">All roles</option>
               <option value="player">Players</option>
-              <option value="admin">Admins</option>
+              <option value="payment_officer">Payment Officers</option>
+              <option value="super_admin">Super Admins</option>
+              <option value="admin">Legacy Admins</option>
             </select>
           </label>
 
@@ -329,7 +331,10 @@ export default function AdminUsers() {
             <select name="status" value={filters.status} onChange={handleFilterChange}>
               <option value="all">All statuses</option>
               <option value="active">Active</option>
+              <option value="suspended">Suspended</option>
+              <option value="banned">Banned</option>
               <option value="disabled">Disabled</option>
+              <option value="deleted">Deleted</option>
             </select>
           </label>
         </div>
@@ -404,19 +409,26 @@ export default function AdminUsers() {
                         onChange={(event) => handleRoleSelection(user, event.target.value)}
                       >
                         <option value="player">Player</option>
-                        <option value="admin">Admin</option>
+                        <option value="payment_officer">Payment Officer</option>
+                        <option value="super_admin">Super Admin</option>
+                        {user.role === "admin" ? <option value="admin">Legacy Admin</option> : null}
                       </select>
                     </label>
 
-                    <Button
-                      variant="secondary"
-                      className="inline-action-button"
-                      isLoading={activeActionKey === `${user.id}:status`}
-                      loadingText="Saving..."
-                      onClick={() => handleStatusToggle(user)}
-                    >
-                      {user.status === "active" ? "Disable" : "Enable"}
-                    </Button>
+                    <label className="form-field admin-users-action-field">
+                      <span className="sr-only">Change status for {user.username}</span>
+                      <select
+                        value={user.status}
+                        disabled={activeActionKey === `${user.id}:status`}
+                        onChange={(event) => handleStatusSelection(user, event.target.value)}
+                      >
+                        <option value="active">Active / Restore</option>
+                        <option value="suspended">Suspended</option>
+                        <option value="banned">Banned</option>
+                        <option value="disabled">Disabled</option>
+                        <option value="deleted">Soft deleted</option>
+                      </select>
+                    </label>
 
                     <Button
                       className="auth-button admin-reset-password-button"

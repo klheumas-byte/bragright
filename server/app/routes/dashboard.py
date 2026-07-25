@@ -1,9 +1,14 @@
 from flask import Blueprint, current_app, jsonify
 from pymongo.errors import PyMongoError
 
-from ..db import describe_mongo_error, get_db_debug_snapshot, get_matches_collection
+from ..db import (
+    describe_mongo_error,
+    get_db_debug_snapshot,
+    get_matches_collection,
+    get_notifications_collection,
+)
 from .auth import get_current_user_from_request, require_player
-from ..services.admin_access import get_user_role
+from ..services.admin_access import SUPER_ADMIN_ROLES, get_user_role
 from ..services.dashboard_service import (
     get_dashboard_actions,
     get_dashboard_action_center,
@@ -33,7 +38,7 @@ def dashboard_summary():
         summary = get_dashboard_summary(
             current_user,
             matches,
-            is_admin=current_user["role"] == "admin",
+            is_admin=current_user["role"] in SUPER_ADMIN_ROLES,
         )
 
         return jsonify(
@@ -89,7 +94,7 @@ def dashboard_actions():
                 "role": get_user_role(user, current_app.config),
             },
             matches,
-            is_admin=get_user_role(user, current_app.config) == "admin",
+            is_admin=get_user_role(user, current_app.config) in SUPER_ADMIN_ROLES,
         )
 
         return jsonify(
@@ -139,7 +144,7 @@ def dashboard_action_center():
                 "role": get_user_role(user, current_app.config),
             },
             matches,
-            is_admin=get_user_role(user, current_app.config) == "admin",
+            is_admin=get_user_role(user, current_app.config) in SUPER_ADMIN_ROLES,
         )
 
         return jsonify(
@@ -187,8 +192,34 @@ def _load_dashboard_notifications():
                 "role": get_user_role(user, current_app.config),
             },
             matches,
-            is_admin=get_user_role(user, current_app.config) == "admin",
+            is_admin=get_user_role(user, current_app.config) in SUPER_ADMIN_ROLES,
         )
+        financial_items = list(
+            get_notifications_collection(config=current_app.config, logger=current_app.logger)
+            .find({"user_id": str(user["_id"])})
+            .sort("created_at", -1)
+            .limit(25)
+        )
+        if financial_items:
+            notifications["items"] = [
+                {
+                    "id": str(item["_id"]),
+                    "type": item.get("event_type"),
+                    "message": item.get("message"),
+                    "match_id": None,
+                    "created_at": item.get("created_at").isoformat() if item.get("created_at") else None,
+                    "action_label": "View payments",
+                    "action_path": (
+                        "/payments/dashboard"
+                        if get_user_role(user, current_app.config) == "payment_officer"
+                        else "/admin/payments"
+                        if get_user_role(user, current_app.config) in SUPER_ADMIN_ROLES
+                        else "/payments/status"
+                    ),
+                }
+                for item in financial_items
+            ] + notifications["items"]
+            notifications["counts"]["financial"] = len(financial_items)
 
         return jsonify(
             {

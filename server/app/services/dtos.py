@@ -1,6 +1,6 @@
 from flask import current_app
 
-from .admin_access import ADMIN_ROLE, get_user_role
+from .admin_access import SUPER_ADMIN_ROLES, get_user_role
 
 
 def _public_id(document):
@@ -46,8 +46,15 @@ def admin_user_dto(user_document):
 def authentication_user_dto(user_document):
     dto = player_private_dto(user_document)
     dto["role"] = get_user_role(user_document, current_app.config)
+    dto["must_change_password"] = bool(user_document.get("must_change_password", False))
+    if dto["role"] == "player":
+        from .subscription_service import subscription_access
+
+        access = subscription_access(current_app.config, user_document)
+        dto["subscription_status"] = access["status"]
+        dto["subscription_access"] = access["allowed"]
     return dto
 
 
 def is_admin_dto(user_document):
-    return get_user_role(user_document, current_app.config) == ADMIN_ROLE
+    return get_user_role(user_document, current_app.config) in SUPER_ADMIN_ROLES

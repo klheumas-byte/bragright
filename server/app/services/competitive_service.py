@@ -2,50 +2,87 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from pymongo import DESCENDING
 
+from .statistics_service import (
+    MIN_RATE_MATCHES,
+    build_head_to_head_statistics,
+    build_player_statistics,
+    is_match_eligible_for_statistics,
+    classify_rank_compatibility,
+    leaderboard_sort_key,
+)
+
 
 POINTS_FOR_WIN = 3
 POINTS_FOR_DRAW = 1
 RECENT_MATCH_LIMIT = 5
 
 
-def build_leaderboard(users_collection, matches_collection):
+def build_leaderboard(users_collection, matches_collection, *, category="ranking",
+                      scope="all_time", competition_id=None, game=None,
+                      minimum_matches=MIN_RATE_MATCHES):
     users = list(
         users_collection.find(
             {"role": "player", "status": {"$ne": "disabled"}},
             {"username": 1, "profile_image": 1},
         )
     )
-    confirmed_matches = list(
-        matches_collection.find(
-            {"status": "confirmed"},
-            {
-                "submitted_by": 1,
-                "opponent_id": 1,
-                "winner_id": 1,
-            },
-        )
-    )
+    confirmed_matches = list(matches_collection.find({"status": "confirmed"}))
 
     stats_by_player = {
         str(user["_id"]): {
             "id": str(user["_id"]),
             "username": user.get("username", "Player"),
             "profile_image": user.get("profile_image") or "",
-            "total_matches": 0,
-            "wins": 0,
-            "losses": 0,
-            "draws": 0,
-            "points": 0,
+            **build_player_statistics(
+                str(user["_id"]),
+                confirmed_matches,
+                scope=scope,
+                competition_id=competition_id,
+                game=game,
+            ),
         }
         for user in users
     }
 
-    for match in confirmed_matches:
-        _apply_match_to_stats(stats_by_player, match)
+    for player in stats_by_player.values():
+        player["total_matches"] = player["matches_played"]
+        player["points"] = player["wins"] * POINTS_FOR_WIN + player["draws"] * POINTS_FOR_DRAW
+
+    # Preserve the established official ranking formula and historical behavior.
+    # Advanced statistical categories below continue to require valid scores.
+    if category == "ranking":
+        ranking_counters = {
+            player_id: {
+                "total_matches": 0, "wins": 0, "losses": 0,
+                "draws": 0, "points": 0,
+            }
+            for player_id in stats_by_player
+        }
+        for match in confirmed_matches:
+            _apply_match_to_stats(ranking_counters, match)
+        for player_id, counters in ranking_counters.items():
+            stats_by_player[player_id].update(counters)
+            stats_by_player[player_id]["win_rate"] = _calculate_win_rate(
+                counters["wins"], counters["total_matches"]
+            )
+
+    if category != "ranking":
+        stats_by_player = {
+            player_id: player
+            for player_id, player in stats_by_player.items()
+            if player["matches_played"] > 0
+        }
+
+    if category in {"goals_per_match", "best_defense", "win_rate"}:
+        stats_by_player = {
+            player_id: player
+            for player_id, player in stats_by_player.items()
+            if player["matches_played"] >= minimum_matches
+        }
 
     sorted_players = sorted(
         stats_by_player.values(),
-        key=lambda player: (-player["points"], -player["wins"], player["username"].lower()),
+        key=lambda player: leaderboard_sort_key(category, player),
     )
 
     leaderboard = []
@@ -54,10 +91,8 @@ def build_leaderboard(users_collection, matches_collection):
             {
                 **player,
                 "rank": index,
-                "win_rate": _calculate_win_rate(
-                    player["wins"],
-                    player["total_matches"],
-                ),
+                "category": category,
+                "minimum_matches": minimum_matches if category in {"goals_per_match", "best_defense", "win_rate"} else 0,
             }
         )
 
@@ -94,7 +129,7 @@ def build_public_player_profile(player_id, users_collection, matches_collection)
             "rank": len(leaderboard) + 1 if leaderboard else 1,
         }
 
-    recent_confirmed_matches = list(
+    all_confirmed_matches = list(
         matches_collection.find(
             {
                 "status": "confirmed",
@@ -103,8 +138,13 @@ def build_public_player_profile(player_id, users_collection, matches_collection)
                     {"opponent_id": player_id},
                 ],
             }
-        ).sort("confirmed_at", DESCENDING).limit(RECENT_MATCH_LIMIT)
+        ).sort("confirmed_at", DESCENDING)
     )
+    statistics = build_player_statistics(player_id, all_confirmed_matches)
+    recent_confirmed_matches = [
+        match for match in all_confirmed_matches
+        if is_match_eligible_for_statistics(match)
+    ][:RECENT_MATCH_LIMIT]
 
     recent_summary = [
         _serialize_public_match_summary(match, player_id)
@@ -124,6 +164,18 @@ def build_public_player_profile(player_id, users_collection, matches_collection)
         "points": player_summary["points"],
         "rank": player_summary["rank"],
         "win_rate": _calculate_win_rate(player_summary["wins"], player_summary["total_matches"]),
+        "statistics": statistics,
+        "matches_played": statistics["matches_played"],
+        "goals_scored": statistics["goals_scored"],
+        "goals_conceded": statistics["goals_conceded"],
+        "goal_difference": statistics["goal_difference"],
+        "clean_sheets": statistics["clean_sheets"],
+        "average_goals_scored": statistics["average_goals_scored"],
+        "average_goals_conceded": statistics["average_goals_conceded"],
+        "current_form": statistics["current_form"],
+        "current_win_streak": statistics["current_win_streak"],
+        "longest_win_streak": statistics["longest_win_streak"],
+        "biggest_win": statistics["biggest_win"],
         "recent_confirmed_matches": recent_summary,
     }
 
@@ -176,6 +228,7 @@ def build_head_to_head(player_a_id, player_b_id, users_collection, matches_colle
         ).sort("confirmed_at", DESCENDING)
     )
 
+    analytics = build_head_to_head_statistics(player_a_id, player_b_id, rivalry_matches)
     summary = {
         "player_a": {
             "id": player_a_id,
@@ -185,30 +238,31 @@ def build_head_to_head(player_a_id, player_b_id, users_collection, matches_colle
             "id": player_b_id,
             "username": player_b.get("username", "Player B"),
         },
-        "total_matches": 0,
-        "player_a_wins": 0,
-        "player_b_wins": 0,
-        "draws": 0,
-        "player_a_points": 0,
-        "player_b_points": 0,
+        "total_matches": analytics["total_meetings"],
+        "total_meetings": analytics["total_meetings"],
+        "player_a_wins": analytics["player_a_wins"],
+        "player_b_wins": analytics["player_b_wins"],
+        "draws": analytics["draws"],
+        "player_a_points": analytics["player_a_goals"],
+        "player_b_points": analytics["player_b_goals"],
+        "player_a_goals": analytics["player_a_goals"],
+        "player_b_goals": analytics["player_b_goals"],
+        "player_a_goal_difference": analytics["player_a_goal_difference"],
+        "player_b_goal_difference": analytics["player_b_goal_difference"],
+        "player_a_clean_sheets": analytics["player_a_clean_sheets"],
+        "player_b_clean_sheets": analytics["player_b_clean_sheets"],
+        "biggest_win": analytics["biggest_win"],
+        "highest_scoring_meeting": analytics["highest_scoring_meeting"],
         "leader": "draw",
         "most_recent_result": None,
         "recent_matches": [],
     }
 
     for match in rivalry_matches:
+        if not is_match_eligible_for_statistics(match):
+            continue
         player_a_score, player_b_score = _resolve_head_to_head_scores(match, player_a_id, player_b_id)
-        summary["total_matches"] += 1
-        summary["player_a_points"] += player_a_score
-        summary["player_b_points"] += player_b_score
-
         winner_id = match.get("winner_id")
-        if not winner_id:
-            summary["draws"] += 1
-        elif winner_id == player_a_id:
-            summary["player_a_wins"] += 1
-        elif winner_id == player_b_id:
-            summary["player_b_wins"] += 1
 
         serialized_match = {
             "match_id": str(match["_id"]),
@@ -227,6 +281,18 @@ def build_head_to_head(player_a_id, player_b_id, users_collection, matches_colle
 
     if summary["recent_matches"]:
         summary["most_recent_result"] = summary["recent_matches"][0]
+
+    ranking = build_leaderboard(users_collection, matches_collection)
+    ranks = {entry["id"]: entry["rank"] for entry in ranking}
+    summary["matchmaking_context"] = {
+        "basis": "official_rank",
+        "player_a_rank": ranks.get(player_a_id),
+        "player_b_rank": ranks.get(player_b_id),
+        "player_a_view": classify_rank_compatibility(
+            ranks.get(player_a_id), ranks.get(player_b_id)
+        ),
+        "advisory_only": True,
+    }
 
     return summary
 
@@ -273,12 +339,12 @@ def _serialize_public_match_summary(match, player_id):
     confirmed_at = match.get("confirmed_at")
 
     if submitted_by == player_id:
-        player_score = match.get("player_score", 0)
-        opponent_score = match.get("opponent_score", 0)
+        player_score = match.get("player_one_score", match.get("player_score", 0))
+        opponent_score = match.get("player_two_score", match.get("opponent_score", 0))
         opponent_label = opponent_name
     else:
-        player_score = match.get("opponent_score", 0)
-        opponent_score = match.get("player_score", 0)
+        player_score = match.get("player_two_score", match.get("opponent_score", 0))
+        opponent_score = match.get("player_one_score", match.get("player_score", 0))
         opponent_label = submitted_by_name
 
     if not winner_id:
@@ -303,10 +369,16 @@ def _resolve_head_to_head_scores(match, player_a_id, player_b_id):
     submitted_by = match.get("submitted_by")
 
     if submitted_by == player_a_id:
-        return match.get("player_score", 0), match.get("opponent_score", 0)
+        return (
+            match.get("player_one_score", match.get("player_score", 0)),
+            match.get("player_two_score", match.get("opponent_score", 0)),
+        )
 
     if submitted_by == player_b_id:
-        return match.get("opponent_score", 0), match.get("player_score", 0)
+        return (
+            match.get("player_two_score", match.get("opponent_score", 0)),
+            match.get("player_one_score", match.get("player_score", 0)),
+        )
 
     return 0, 0
 

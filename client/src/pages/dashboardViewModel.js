@@ -1,5 +1,13 @@
 export const EMPTY_DASHBOARD_SUMMARY = Object.freeze({
   total_matches: 0,
+  matches_played: 0,
+  goals_scored: 0,
+  goals_conceded: 0,
+  goal_difference: 0,
+  clean_sheets: 0,
+  win_rate: 0,
+  current_form: [],
+  statistics_scope_label: "All time",
   wins: 0,
   losses: 0,
   draws: 0,
@@ -27,6 +35,14 @@ export const EMPTY_ACTION_CENTER = Object.freeze({
 export function normalizeDashboardSummary(summary) {
   return {
     total_matches: toNonNegativeNumber(summary?.total_matches),
+    matches_played: toNonNegativeNumber(summary?.matches_played),
+    goals_scored: toNonNegativeNumber(summary?.goals_scored),
+    goals_conceded: toNonNegativeNumber(summary?.goals_conceded),
+    goal_difference: toFiniteNumber(summary?.goal_difference),
+    clean_sheets: toNonNegativeNumber(summary?.clean_sheets),
+    win_rate: toNonNegativeNumber(summary?.win_rate),
+    current_form: Array.isArray(summary?.current_form) ? summary.current_form.slice(0, 5) : [],
+    statistics_scope_label: summary?.statistics_scope_label || "All time",
     wins: toNonNegativeNumber(summary?.wins),
     losses: toNonNegativeNumber(summary?.losses),
     draws: toNonNegativeNumber(summary?.draws),
@@ -77,8 +93,15 @@ export function getPrimaryDashboardAction(actionCenter) {
   const firstItem = actionCenter?.items?.[0];
 
   if (firstItem) {
+    const labels = {
+      match_request: "Respond to challenge",
+      result_required: "Enter match result",
+      result_submission_required: "Enter match result",
+      result_awaiting_confirmation: "Review submitted result",
+      dispute_requiring_review: "Review disputed match",
+    };
     return {
-      label: firstItem.action_label || "Review match",
+      label: firstItem.action_label || labels[firstItem.type] || "Review match",
       path:
         firstItem.action_url ||
         firstItem.action_path ||
@@ -169,5 +192,10 @@ function deduplicateById(items) {
 function toNonNegativeNumber(value) {
   const parsedValue = Number(value);
   return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 0;
+}
+
+function toFiniteNumber(value) {
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) ? parsedValue : 0;
 }
 import { getMatchStatusPresentation } from "./matchPresentation.js";

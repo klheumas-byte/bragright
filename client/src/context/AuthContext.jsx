@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { useLoading } from "./LoadingContext";
 import {
   clearClientApiCache,
+  changeCurrentUserPassword,
   getCurrentUser,
   loginUser,
   logoutUser,
@@ -18,6 +19,7 @@ const AuthContext = createContext(null);
 const LEGACY_AUTH_STORAGE_KEY = "bragright_user";
 export const PLAYER_HOME_PATH = "/dashboard";
 export const ADMIN_HOME_PATH = "/admin/dashboard";
+export const PAYMENT_HOME_PATH = "/payments/dashboard";
 
 export function AuthProvider({ children }) {
   const { trackLoading } = useLoading();
@@ -65,6 +67,13 @@ export function AuthProvider({ children }) {
     }
   }
 
+  async function changePassword(payload) {
+    const data = await trackLoading(() => changeCurrentUserPassword(payload));
+    const normalizedUser = normalizeUserRole(data.user);
+    updateSessionUser(normalizedUser);
+    return { ...data, user: normalizedUser };
+  }
+
   async function initializeAuth() {
     removeLegacyStoredAuthentication();
     try {
@@ -85,6 +94,7 @@ export function AuthProvider({ children }) {
     login,
     refreshCurrentUser,
     logout,
+    changePassword,
     getHomePathForRole,
   };
 
@@ -110,7 +120,9 @@ function removeLegacyStoredAuthentication() {
 }
 
 function getHomePathForRole(role) {
-  return role === "admin" ? ADMIN_HOME_PATH : PLAYER_HOME_PATH;
+  if (role === "admin" || role === "super_admin") return ADMIN_HOME_PATH;
+  if (role === "payment_officer") return PAYMENT_HOME_PATH;
+  return PLAYER_HOME_PATH;
 }
 
 function normalizeUserRole(user) {
@@ -122,6 +134,6 @@ function normalizeUserRole(user) {
   return {
     ...user,
     role: normalizedRole,
-    is_admin: normalizedRole === "admin",
+    is_admin: normalizedRole === "admin" || normalizedRole === "super_admin",
   };
 }

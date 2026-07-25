@@ -38,9 +38,10 @@ export function ThemeProvider({ children }) {
     root.dataset.theme = effectiveTheme;
     root.dataset.themePreference = preference;
     root.style.colorScheme = effectiveTheme;
+    const pageColor = window.getComputedStyle(root).getPropertyValue("--bg-page").trim();
     document.querySelector('meta[name="theme-color"]')?.setAttribute(
       "content",
-      effectiveTheme === "light" ? "#f2f7f7" : "#0e1a24"
+      pageColor
     );
   }, [effectiveTheme, preference]);
 

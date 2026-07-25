@@ -11,6 +11,18 @@ const NOTIFICATION_TYPES = Object.freeze({
     tone: "warning",
     priority: "Action required",
   },
+  result_required: {
+    title: "Match result needed",
+    icon: "submit",
+    tone: "warning",
+    priority: "Action required",
+  },
+  result_submission_required: {
+    title: "Match result needed",
+    icon: "submit",
+    tone: "warning",
+    priority: "Action required",
+  },
   dispute_status: {
     title: "Dispute update",
     icon: "disputes",
@@ -39,11 +51,21 @@ export function normalizeEngagementNotifications(items) {
       priority: definition.priority,
       tone: definition.tone,
       icon: definition.icon,
-      actionLabel: cleanText(item?.action_label) || "Review now",
+      actionLabel: cleanText(item?.action_label) || getMatchActionLabel(item?.type),
       actionPath: item?.action_url || item?.action_path || "/dashboard/matches",
       matchId: cleanText(item?.related_match_id || item?.match_id),
     };
   });
+}
+
+function getMatchActionLabel(type) {
+  return {
+    match_request: "Accept or decline",
+    result_required: "Enter result",
+    result_submission_required: "Enter result",
+    result_awaiting_confirmation: "Review result",
+    dispute_status: "View dispute",
+  }[type] || "Review now";
 }
 
 export function buildPlayerHighlights(summary, ranking) {

@@ -477,6 +477,13 @@ export function logoutUser() {
   });
 }
 
+export function changeCurrentUserPassword(payload) {
+  return apiMutation("/auth/password", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function restoreSession() {
   const storedSession = restoreStoredAuthSession();
   if (!storedSession) return refreshAuthentication();
@@ -621,6 +628,8 @@ export function getLeaderboard(options = {}) {
   const limit = Math.min(parsePositiveInteger(options.limit, 100), 200);
   const search = String(options.search || "").trim().replace(/\s+/g, " ").slice(0, 64);
   const playerId = String(options.playerId || "").trim();
+  const category = String(options.category || "").trim();
+  const scope = String(options.scope || "").trim();
   const params = new URLSearchParams();
   if (options.page || options.limit || search || playerId) {
     params.set("page", String(page));
@@ -632,9 +641,11 @@ export function getLeaderboard(options = {}) {
   if (playerId) {
     params.set("player_id", playerId);
   }
+  if (category) params.set("category", category);
+  if (scope) params.set("scope", scope);
   const queryString = params.toString();
   const path = `/leaderboard${queryString ? `?${queryString}` : ""}`;
-  const cacheKey = `leaderboard:${page}:${limit}:${search.toLocaleLowerCase()}:${playerId}`;
+  const cacheKey = `leaderboard:${page}:${limit}:${search.toLocaleLowerCase()}:${playerId}:${category}:${scope}`;
 
   return cachedApiRequest(path, {
     cacheKey,
@@ -651,21 +662,38 @@ export function getPublicPlayerProfile(playerId, options = {}) {
   });
 }
 
+export function getPlayerStatistics(playerId, options = {}) {
+  const scope = String(options.scope || "all_time").trim();
+  return cachedApiRequest(
+    `/players/${encodeURIComponent(playerId)}/statistics?scope=${encodeURIComponent(scope)}`,
+    {
+      cacheKey: `player-statistics:${playerId}:${scope}`,
+      ttlMs: 30_000,
+      forceRefresh: options.forceRefresh,
+    }
+  );
+}
+
 export function getHeadToHead(playerAId, playerBId) {
   return apiRequest(`/head-to-head/${playerAId}/${playerBId}`);
 }
 
 export function getDashboardNotifications() {
-  return cachedApiRequest("/dashboard/notifications", {
-    cacheKey: "dashboard-notifications",
+  const currentUser = getCurrentSessionUser();
+  const usePaymentNotifications = currentUser?.role === "payment_officer"
+    || currentUser?.subscription_access === false;
+  const path = usePaymentNotifications ? "/payments/notifications" : "/dashboard/notifications";
+  return cachedApiRequest(path, {
+    cacheKey: usePaymentNotifications ? "payment-notifications" : "dashboard-notifications",
     ttlMs: 10_000,
   });
 }
 
-export function getDashboardActions() {
+export function getDashboardActions(options = {}) {
   return cachedApiRequest("/dashboard/actions", {
     cacheKey: "dashboard-actions",
     ttlMs: 10_000,
+    forceRefresh: options.forceRefresh,
   });
 }
 
@@ -861,9 +889,10 @@ export function acceptMatch(matchId) {
   });
 }
 
-export function declineMatch(matchId) {
+export function declineMatch(matchId, payload = {}) {
   return apiMutation(`/matches/${matchId}/decline`, {
     method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 
@@ -983,4 +1012,114 @@ export async function fetchProtectedAsset(path, { skipAuthRefresh = false } = {}
 
 export function clearClientApiCache() {
   clearApiCache();
+}
+
+function financialQuery(path, filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "" && value !== "all") {
+      params.set(key, value);
+    }
+  });
+  const query = params.toString();
+  return apiRequest(`${path}${query ? `?${query}` : ""}`);
+}
+
+export function getSubscriptionStatus(billingMonth) {
+  return financialQuery("/payments/subscription/me", { billing_month: billingMonth });
+}
+
+export function getPaymentSettings() {
+  return apiRequest("/payments/settings");
+}
+
+export function getPaymentDashboard(filters = {}) {
+  return financialQuery("/payments/dashboard", filters);
+}
+
+export function searchSubscriptionPlayers(filters = {}) {
+  return financialQuery("/payments/players", filters);
+}
+
+export function getPayments(filters = {}) {
+  return financialQuery("/payments/payments", filters);
+}
+
+export function recordManualPayment(payload) {
+  return apiMutation("/payments/payments", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function submitPlayerPayment(payload) {
+  return apiMutation("/payments/submissions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function uploadPaymentProof(file) {
+  const formData = new FormData();
+  formData.append("proof_image", file);
+  return apiMutation("/payments/upload-proof", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export function getRemittances(filters = {}) {
+  return financialQuery("/payments/remittances", filters);
+}
+
+export function submitRemittance(payload) {
+  return apiMutation("/payments/remittances", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function reviewRemittance(remittanceId, payload) {
+  return apiMutation(`/payments/remittances/${remittanceId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function grantSubscriptionExemption(payload) {
+  return apiMutation("/payments/exemptions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function reverseManualPayment(paymentId, payload) {
+  return apiMutation(`/payments/payments/${paymentId}/reverse`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function verifyManualPayment(paymentId) {
+  return apiMutation(`/payments/payments/${paymentId}/verify`, {
+    method: "POST",
+  });
+}
+
+export function rejectPlayerPayment(paymentId, reason) {
+  return apiMutation(`/payments/payments/${paymentId}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function runMonthlyBilling(payload) {
+  return apiMutation("/payments/billing/run", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getFinancialAudit() {
+  return apiRequest("/payments/audit");
 }

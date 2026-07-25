@@ -6,6 +6,7 @@ from werkzeug.security import generate_password_hash
 
 from app import db as db_module
 from app import create_app
+from app.services.subscription_service import current_billing_month, recalculate_subscription
 
 
 class TestConfig:
@@ -96,13 +97,14 @@ def activity_logs(app):
 
 
 @pytest.fixture()
-def create_user(users):
+def create_user(app, users):
     def factory(
         email,
         password="correct-horse-battery-staple",
         role="player",
         status="active",
         username=None,
+        subscription_access=True,
     ):
         now = datetime.now(timezone.utc)
         user_document = {
@@ -119,6 +121,20 @@ def create_user(users):
             "updated_at": now,
         }
         result = users.insert_one(user_document)
-        return users.find_one({"_id": result.inserted_id})
+        created_user = users.find_one({"_id": result.inserted_id})
+        if role == "player" and status == "active" and subscription_access:
+            month = current_billing_month(now)
+            db_module.get_subscription_exemptions_collection(config=app.config).insert_one(
+                {
+                    "player_id": str(result.inserted_id),
+                    "billing_month": month,
+                    "status": "active",
+                    "reason": "Authorized test access",
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+            recalculate_subscription(app.config, str(result.inserted_id), month, now=now)
+        return created_user
 
     return factory

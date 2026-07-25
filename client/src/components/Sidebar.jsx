@@ -6,7 +6,9 @@ import ProfileAvatar from "./ProfileAvatar";
 import SidebarIcon from "./SidebarIcon";
 import {
   ADMIN_NAVIGATION_ITEMS,
+  PAYMENT_NAVIGATION_ITEMS,
   PLAYER_NAVIGATION_ITEMS,
+  RESTRICTED_PLAYER_NAVIGATION_ITEMS,
 } from "./sidebarNavigation";
 import { getSidebarIdentity } from "./sidebarViewModel";
 
@@ -32,7 +34,11 @@ function Sidebar({
   const isAdminView = location.pathname.startsWith("/admin");
   const visibleNavigationItems = useMemo(
     () => {
-      const isAdmin = user?.role === "admin" || user?.is_admin;
+      if (user?.role === "payment_officer") return PAYMENT_NAVIGATION_ITEMS;
+      if (user?.role === "player" && user?.subscription_access === false) {
+        return RESTRICTED_PLAYER_NAVIGATION_ITEMS;
+      }
+      const isAdmin = user?.role === "admin" || user?.role === "super_admin" || user?.is_admin;
       if (!isAdmin) return PLAYER_NAVIGATION_ITEMS;
       return isAdminView
         ? ADMIN_NAVIGATION_ITEMS
@@ -40,11 +46,12 @@ function Sidebar({
     },
     [isAdminView, user?.is_admin, user?.role]
   );
-  const identity = useMemo(() => getSidebarIdentity(user), [
+  const identity = useMemo(() => ({ ...getSidebarIdentity(user), role: user?.role }), [
     user?.display_name,
     user?.email,
     user?.profile_image,
     user?.username,
+    user?.role,
   ]);
 
   const handleNavClick = useCallback(() => {
@@ -69,7 +76,7 @@ function Sidebar({
       }
     }
 
-    if (user?.id) {
+    if (user?.id && user?.role !== "payment_officer" && user?.subscription_access !== false) {
       loadActionCounts();
     }
 
@@ -150,7 +157,9 @@ function Sidebar({
       <div className="sidebar-top-row">
         <div className="sidebar-brand">
           <p className="sidebar-eyebrow"><span className="sidebar-brand-mark">BR</span><span className="sidebar-expanded-copy">BRAGRIGHT</span></p>
-          <h2 className="sidebar-title sidebar-expanded-copy">{isAdminView ? "Admin Arena" : "Player Arena"}</h2>
+          <h2 className="sidebar-title sidebar-expanded-copy">
+            {isAdminView ? "Administration" : user?.role === "payment_officer" ? "Payment operations" : "Player account"}
+          </h2>
         </div>
 
         {isMobileView ? (
@@ -169,7 +178,7 @@ function Sidebar({
       <SidebarUserBlock identity={identity} currentRank={currentRank} isCollapsed={isCollapsed} isAdminView={isAdminView} onClick={handleNavClick} />
 
       <nav ref={navigationRef} className="sidebar-nav" aria-label="Primary navigation" onScroll={preserveScrollPosition}>
-        <p className="sidebar-section-label"><span className="sidebar-collapsed-copy">Nav</span><span className="sidebar-expanded-copy">Command deck</span></p>
+        <p className="sidebar-section-label"><span className="sidebar-collapsed-copy">Nav</span><span className="sidebar-expanded-copy">Main navigation</span></p>
         {visibleNavigationItems.map((item) => (
           <SidebarNavigationItem
             key={item.id}
@@ -213,7 +222,9 @@ const SidebarNavigationItem = memo(function SidebarNavigationItem({
       title={isCollapsed ? item.label : undefined}
       aria-label={isCollapsed ? item.label : undefined}
       onClick={onClick}
-      className={({ isActive }) => `sidebar-link${isActive ? " sidebar-link-active" : ""}`}
+      className={({ isActive }) =>
+        `sidebar-link${isActive ? " sidebar-link-active" : ""}${badge > 0 ? " sidebar-link-actionable" : ""}`
+      }
     >
       <span className="sidebar-link-icon">
         {item.id === "profile" ? (
@@ -236,7 +247,7 @@ const SidebarNavigationItem = memo(function SidebarNavigationItem({
 const SidebarUserBlock = memo(function SidebarUserBlock({ identity, currentRank, isCollapsed, isAdminView, onClick }) {
   return (
     <NavLink
-      to={isAdminView ? "/admin/profile" : "/profile"}
+      to={isAdminView ? "/admin/profile" : identity.role === "payment_officer" ? "/payments/dashboard" : "/profile"}
       className="sidebar-user-block"
       aria-label={`${identity.displayName}, signed-in user`}
       title={isCollapsed ? identity.displayName : undefined}

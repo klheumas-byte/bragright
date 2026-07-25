@@ -21,6 +21,16 @@ const definitions = {
     sound: true,
     push: true,
   }),
+  result_required: event({
+    category: "result",
+    priority: "action_required",
+    title: "Match result required",
+    icon: "activity",
+    actionRequired: true,
+    actionLabel: "Enter result",
+    sound: true,
+    push: true,
+  }),
   dispute_requiring_review: event({
     category: "dispute",
     priority: "action_required",
@@ -51,6 +61,16 @@ const definitions = {
     sound: false,
     push: false,
   }),
+  match_confirmed: event({
+    category: "result",
+    priority: "important",
+    title: "Match result confirmed",
+    icon: "check",
+    actionRequired: false,
+    actionLabel: "View result",
+    sound: false,
+    push: false,
+  }),
   match_cancelled: event({
     category: "match",
     priority: "informational",
@@ -61,6 +81,14 @@ const definitions = {
     sound: false,
     push: false,
   }),
+  payment_recorded: financialEvent("Payment recorded", "important"),
+  account_activated: financialEvent("Account activated", "important"),
+  payment_reversed: financialEvent("Payment reversed", "important"),
+  account_restricted: financialEvent("Subscription access restricted", "action_required"),
+  exemption_granted: financialEvent("Subscription exemption granted", "important"),
+  remittance_submitted: financialEvent("Remittance awaiting review", "action_required", "/admin/payments"),
+  remittance_verified: financialEvent("Remittance verified", "important", "/payments/remittances"),
+  remittance_rejected: financialEvent("Remittance rejected", "important", "/payments/remittances"),
 };
 
 export const notificationEventRegistry = Object.freeze(definitions);
@@ -101,16 +129,34 @@ export function normalizeNotificationEvents(items) {
 }
 
 export function buildNotificationDestination(item, definition = definitions[item?.type]) {
-  const raw = clean(item?.action_url || item?.action_path) || definition?.fallbackRoute || MATCH_ROUTE;
+  const entityId = clean(item?.related_match_id || item?.match_id);
+  const raw = clean(item?.action_url || item?.action_path)
+    || buildMatchActionDestination(item?.type, entityId)
+    || definition?.fallbackRoute
+    || MATCH_ROUTE;
   if (!raw.startsWith("/") || raw.startsWith("//")) return MATCH_ROUTE;
   try {
     const parsed = new URL(raw, "https://bragright.local");
-    const allowed = ["/dashboard/matches", "/admin/disputes", "/leaderboard", "/profile"];
+    const allowed = ["/matches", "/dashboard/matches", "/admin/disputes", "/admin/payments", "/payments", "/leaderboard", "/profile"];
     if (!allowed.some((path) => parsed.pathname === path || parsed.pathname.startsWith(`${path}/`))) return MATCH_ROUTE;
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
     return MATCH_ROUTE;
   }
+}
+
+export function buildMatchActionDestination(type, matchId) {
+  if (!matchId) return MATCH_ROUTE;
+  const encoded = encodeURIComponent(matchId);
+  return {
+    match_request: `/matches/${encoded}/respond`,
+    result_required: `/matches/${encoded}/result/submit`,
+    result_awaiting_confirmation: `/matches/${encoded}/result/confirm`,
+    dispute_status: `/dashboard/matches?matchId=${encoded}`,
+    match_cancelled: `/dashboard/matches?matchId=${encoded}`,
+    match_confirmed: `/dashboard/matches?matchId=${encoded}`,
+    match_resolved: `/dashboard/matches?matchId=${encoded}`,
+  }[type] || `/dashboard/matches?matchId=${encoded}`;
 }
 
 export function isActionRequiredEvent(item) {
@@ -145,6 +191,20 @@ function event(options) {
   });
 }
 
+function financialEvent(title, priority, fallbackRoute = "/payments/status") {
+  return event({
+    category: "payment",
+    priority,
+    title,
+    icon: priority === "important" ? "check" : "activity",
+    actionRequired: priority === "action_required",
+    actionLabel: "View payments",
+    fallbackRoute,
+    sound: priority === "action_required",
+    push: false,
+  });
+}
+
 function priorityTone(priority) {
   if (priority === "urgent") return "danger";
   if (priority === "action_required") return "warning";
@@ -154,4 +214,3 @@ function priorityTone(priority) {
 
 function clean(value) { return value == null || value === "undefined" ? "" : String(value).trim(); }
 function dateValue(value) { const parsed = value ? new Date(value) : null; return parsed && !Number.isNaN(parsed.getTime()) ? parsed.getTime() : 0; }
-

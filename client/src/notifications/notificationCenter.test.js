@@ -17,7 +17,7 @@ const header = readFileSync(new URL("components/DashboardHeader.jsx", root), "ut
 
 test("registry supports only authoritative action-center event types", () => {
   assert.deepEqual(Object.keys(notificationEventRegistry).sort(), [
-    "dispute_requiring_review", "dispute_status", "match_cancelled", "match_request", "match_resolved", "result_awaiting_confirmation",
+    "account_activated", "account_restricted", "dispute_requiring_review", "dispute_status", "exemption_granted", "match_cancelled", "match_confirmed", "match_request", "match_resolved", "payment_recorded", "payment_reversed", "remittance_rejected", "remittance_submitted", "remittance_verified", "result_awaiting_confirmation", "result_required",
   ]);
   assert.equal(notificationEventRegistry.match_request.priority, "action_required");
   assert.equal(notificationEventRegistry.dispute_status.actionRequired, false);

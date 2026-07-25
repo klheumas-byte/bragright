@@ -1,6 +1,14 @@
 PLAYER_ROLE = "player"
 ADMIN_ROLE = "admin"
-VALID_USER_ROLES = {PLAYER_ROLE, ADMIN_ROLE}
+SUPER_ADMIN_ROLE = "super_admin"
+PAYMENT_OFFICER_ROLE = "payment_officer"
+VALID_USER_ROLES = {
+    PLAYER_ROLE,
+    ADMIN_ROLE,
+    SUPER_ADMIN_ROLE,
+    PAYMENT_OFFICER_ROLE,
+}
+SUPER_ADMIN_ROLES = {ADMIN_ROLE, SUPER_ADMIN_ROLE}
 
 
 def _normalize_identity_list(raw_value):
@@ -36,4 +44,12 @@ def get_user_role(user, config):
 
 
 def is_admin_user(user, config):
-    return get_user_role(user, config) == ADMIN_ROLE
+    return get_user_role(user, config) in SUPER_ADMIN_ROLES
+
+
+def is_super_admin_user(user, config):
+    return get_user_role(user, config) == SUPER_ADMIN_ROLE
+
+
+def is_payment_officer_user(user, config):
+    return get_user_role(user, config) == PAYMENT_OFFICER_ROLE

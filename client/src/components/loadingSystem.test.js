@@ -13,6 +13,7 @@ const progress = read("components/RouteProgress.jsx");
 const button = read("components/ui/Button.jsx");
 const avatar = read("components/ProfileAvatar.jsx");
 const submitMatch = read("pages/SubmitMatch.jsx");
+const matchAction = read("pages/MatchAction.jsx");
 const leaderboard = read("pages/Leaderboard.jsx");
 const matches = read("pages/MyMatches.jsx");
 const activity = read("pages/MyActivity.jsx");
@@ -81,10 +82,10 @@ test("button loading is isolated and prevents duplicate activation", () => {
 });
 
 test("opponent search keeps its query and loaded player cards while refreshing", () => {
-  assert.match(submitMatch, /value={opponentSearch}/);
-  assert.match(submitMatch, /isLoadingOpponents && !opponents\.length/);
-  assert.match(submitMatch, /opponentRequestRef\.current/);
-  assert.match(submitMatch, /Searching opponents/);
+  assert.match(submitMatch, /value={search}/);
+  assert.match(submitMatch, /loading && !opponents\.length/);
+  assert.match(submitMatch, /requestRef\.current/);
+  assert.match(submitMatch, /loading-region--refreshing/);
 });
 
 test("avatar loading preserves its box and falls back after an image failure", () => {
@@ -95,16 +96,16 @@ test("avatar loading preserves its box and falls back after an image failure", (
 });
 
 test("upload state preserves the selected file and exposes processing status", () => {
-  assert.match(submitMatch, /match-selected-file/);
-  assert.match(submitMatch, /uploadState \? <p role="status">/);
-  assert.match(submitMatch, /disabled={isSubmittingResult}/);
+  assert.match(matchAction, /proof \? <p>/);
+  assert.match(matchAction, /isLoading={busy}/);
+  assert.match(matchAction, /disabled={busy}/);
 });
 
 test("loading, empty, and retryable error states remain distinct", () => {
   assert.match(submitMatch, /OpponentSearchSkeleton/);
   assert.match(submitMatch, /<EmptyState/);
   assert.match(submitMatch, /<ErrorState/);
-  assert.match(submitMatch, /retryLabel="Retry opponent search"/);
+  assert.match(submitMatch, /retryLabel="Refresh opponents"/);
 });
 
 test("loading motion is theme-aware and reduced-motion safe", () => {

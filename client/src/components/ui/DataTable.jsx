@@ -63,7 +63,7 @@ export default function DataTable({
   if (isLoading) {
     return (
       <div className="ui-card ui-card--loading ui-table-skeleton" aria-busy="true" role="status" aria-label="Loading table">
-        {Array.from({ length: Math.min(pageSize, 6) }, (_, index) => (
+        {Array.from({ length: Math.min(Number(pagination?.pageSize) || 6, 6) }, (_, index) => (
           <SkeletonTableRow key={index} cells={columns.length || 5} />
         ))}
         <span>Loading records…</span>

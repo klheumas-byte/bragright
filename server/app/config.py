@@ -7,6 +7,7 @@ from .db import load_server_env
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+DEFAULT_SUBSCRIPTION_MONTHLY_FEE_MINOR = 2000
 load_server_env()
 ENV_VALUES = dotenv_values(BASE_DIR / ".env") if (BASE_DIR / ".env").exists() else {}
 
@@ -176,3 +177,36 @@ class Config:
     RATE_LIMIT_ADMIN_RESET = _get_int_setting(
         "RATE_LIMIT_ADMIN_RESET", 10, minimum=1, maximum=1000
     )
+    SUBSCRIPTION_MONTHLY_FEE_MINOR = _get_int_setting(
+        "SUBSCRIPTION_MONTHLY_FEE_MINOR",
+        DEFAULT_SUBSCRIPTION_MONTHLY_FEE_MINOR,
+        minimum=1,
+        maximum=10000000,
+    )
+    SUBSCRIPTION_CURRENCY = str(
+        _get_setting("SUBSCRIPTION_CURRENCY", "GHS")
+    ).strip().upper()
+    SUBSCRIPTION_GRACE_DAYS = _get_int_setting(
+        "SUBSCRIPTION_GRACE_DAYS", 7, minimum=1, maximum=28
+    )
+    PAYMENT_REQUIRES_SUPER_ADMIN_VERIFICATION = _get_bool_setting(
+        "PAYMENT_REQUIRES_SUPER_ADMIN_VERIFICATION", False
+    )
+    SUBSCRIPTION_PAYMENT_INSTRUCTIONS = str(
+        _get_setting(
+            "SUBSCRIPTION_PAYMENT_INSTRUCTIONS",
+            "Pay the monthly fee, keep the transaction reference, and submit it for verification or contact BragPay.",
+        )
+    ).strip()
+    SUBSCRIPTION_PAYMENT_DESTINATION = str(
+        _get_setting(
+            "SUBSCRIPTION_PAYMENT_DESTINATION",
+            "Contact BragPay for the current payment destination.",
+        )
+    ).strip()
+    SUBSCRIPTION_SUPPORT_CONTACT = str(
+        _get_setting(
+            "SUBSCRIPTION_SUPPORT_CONTACT",
+            "Contact BragRight support or an administrator.",
+        )
+    ).strip()

@@ -26,6 +26,10 @@ const Profile = lazyWithRouteRecovery(() => import("./pages/Profile"), "profile"
 const PlayerProfile = lazyWithRouteRecovery(() => import("./pages/PlayerProfile"), "player-profile");
 const Register = lazyWithRouteRecovery(() => import("./pages/Register"), "register");
 const SubmitMatch = lazyWithRouteRecovery(() => import("./pages/SubmitMatch"), "submit-match");
+const MatchAction = lazyWithRouteRecovery(() => import("./pages/MatchAction"), "match-action");
+const PaymentOperations = lazyWithRouteRecovery(() => import("./pages/PaymentOperations"), "payment-operations");
+const SubscriptionStatus = lazyWithRouteRecovery(() => import("./pages/SubscriptionStatus"), "subscription-status");
+const PasswordSettings = lazyWithRouteRecovery(() => import("./pages/PasswordSettings"), "password-settings");
 
 export default function App() {
   return (
@@ -49,15 +53,20 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route path="/leaderboard" element={<Leaderboard />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/players/:playerId" element={<PlayerProfile />} />
-            <Route path="/activity" element={<MyActivity />} />
-            <Route path="/head-to-head" element={<HeadToHead />} />
-            <Route path="/head-to-head/:playerAId/:playerBId" element={<HeadToHead />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/dashboard/submit-match" element={<SubmitMatch />} />
-            <Route path="/dashboard/matches" element={<MyMatches />} />
+            <Route path="/leaderboard" element={<ProtectedRoute requireSubscription><Leaderboard /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute requireSubscription><Profile /></ProtectedRoute>} />
+            <Route path="/players/:playerId" element={<ProtectedRoute requireSubscription><PlayerProfile /></ProtectedRoute>} />
+            <Route path="/activity" element={<ProtectedRoute requireSubscription><MyActivity /></ProtectedRoute>} />
+            <Route path="/head-to-head" element={<ProtectedRoute requireSubscription><HeadToHead /></ProtectedRoute>} />
+            <Route path="/head-to-head/:playerAId/:playerBId" element={<ProtectedRoute requireSubscription><HeadToHead /></ProtectedRoute>} />
+            <Route path="/dashboard" element={<ProtectedRoute requireSubscription><Dashboard /></ProtectedRoute>} />
+            <Route path="/dashboard/submit-match" element={<ProtectedRoute requireSubscription><SubmitMatch /></ProtectedRoute>} />
+            <Route path="/dashboard/matches" element={<ProtectedRoute requireSubscription><MyMatches /></ProtectedRoute>} />
+            <Route path="/payments/status" element={<ProtectedRoute allowedRoles={["player"]}><SubscriptionStatus /></ProtectedRoute>} />
+            <Route path="/account/password" element={<PasswordSettings />} />
+            <Route path="/payments/dashboard" element={<ProtectedRoute allowedRoles={["payment_officer"]}><PaymentOperations /></ProtectedRoute>} />
+            <Route path="/payments/record" element={<ProtectedRoute allowedRoles={["payment_officer"]}><PaymentOperations view="record" /></ProtectedRoute>} />
+            <Route path="/admin/payments" element={<ProtectedRoute requireAdmin><PaymentOperations /></ProtectedRoute>} />
             <Route path="/admin/profile" element={<ProtectedRoute requireAdmin><AdminProfile /></ProtectedRoute>} />
             <Route path="/admin/dashboard" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
             <Route path="/admin/activity" element={<ProtectedRoute requireAdmin><AdminActivity /></ProtectedRoute>} />
@@ -65,6 +74,10 @@ export default function App() {
             <Route path="/admin/settings" element={<ProtectedRoute requireAdmin><AdminSettings /></ProtectedRoute>} />
             <Route path="/admin/disputes" element={<ProtectedRoute requireAdmin><AdminDisputes /></ProtectedRoute>} />
           </Route>
+          <Route path="/matches/:matchId/sent" element={<ProtectedRoute requireSubscription><MatchAction mode="sent" /></ProtectedRoute>} />
+          <Route path="/matches/:matchId/respond" element={<ProtectedRoute requireSubscription><MatchAction mode="respond" /></ProtectedRoute>} />
+          <Route path="/matches/:matchId/result/submit" element={<ProtectedRoute requireSubscription><MatchAction mode="submit" /></ProtectedRoute>} />
+          <Route path="/matches/:matchId/result/confirm" element={<ProtectedRoute requireSubscription><MatchAction mode="confirm" /></ProtectedRoute>} />
           <Route path="*" element={<Suspense fallback={<AuthPageSkeleton />}><NotFound /></Suspense>} />
         </Routes>
     </>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import ErrorState from "../components/ErrorState";
 import PlayerIdentity from "../components/PlayerIdentity";
 import {
@@ -27,10 +27,24 @@ import {
 
 const PAGE_SIZE = 20;
 const SEARCH_DEBOUNCE_MS = 300;
+const CATEGORY_LABELS = {
+  ranking: "Official Ranking",
+  goals: "Top Goalscorers",
+  wins: "Most Wins",
+  goal_difference: "Best Goal Difference",
+  clean_sheets: "Most Clean Sheets",
+  goals_per_match: "Highest Goals Per Match",
+  best_defense: "Best Defense",
+  win_rate: "Highest Win Rate",
+};
 
 export default function Leaderboard() {
   const { user } = useAuth();
   const { trackLoading } = useLoading();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const category = CATEGORY_LABELS[searchParams.get("category")]
+    ? searchParams.get("category")
+    : "ranking";
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
   const [entries, setEntries] = useState([]);
@@ -64,7 +78,7 @@ export default function Leaderboard() {
 
   useEffect(() => {
     loadLeaderboard();
-  }, [pagination.page, search, user?.id]);
+  }, [pagination.page, search, user?.id, category]);
 
   async function loadLeaderboard({ forceRefresh = false } = {}) {
     const requestId = ++requestIdRef.current;
@@ -83,6 +97,8 @@ export default function Leaderboard() {
           search,
           playerId: user?.id,
           forceRefresh,
+          category,
+          scope: "all_time",
         })
       );
       if (!mountedRef.current || requestIdRef.current !== requestId) {
@@ -141,7 +157,9 @@ export default function Leaderboard() {
               Confirmed competitive rankings.
             </h2>
             <p className="leaderboard-hero-copy">
-              Ordered by backend-confirmed points, wins, and deterministic player-name tie breaking.
+              {category === "ranking"
+                ? "Ordered by backend-confirmed points and wins."
+                : `${CATEGORY_LABELS[category]} from real all-time confirmed results with deterministic tie-breaking.`}
             </p>
             <div className="leaderboard-hero-actions">
               <Button as={Link} to="/profile" variant="secondary" size="sm">
@@ -234,8 +252,8 @@ export default function Leaderboard() {
       )}
 
       <PageSection
-        title="Top ranked players"
-        description="The leading competitors in the official backend order."
+        title={CATEGORY_LABELS[category]}
+        description={`All time · ${category === "ranking" ? "official ranking order" : "authoritative confirmed match statistics"}.`}
       >
         {isInitialLoading ? (
           <TopPlayersSkeleton />
@@ -298,9 +316,22 @@ export default function Leaderboard() {
               description="Results retain their absolute official rank."
             />
             <div className="leaderboard-order-control" aria-label="Leaderboard filters">
-              <span className="match-score-label">Ranking view</span>
-              <Badge tone="info">Official order</Badge>
-              <p>No additional filters are supported by current competition data.</p>
+              <label htmlFor="leaderboard-category" className="match-score-label">Statistics category</label>
+              <select
+                id="leaderboard-category"
+                value={category}
+                onChange={(event) => {
+                  const next = new URLSearchParams(searchParams);
+                  if (event.target.value === "ranking") next.delete("category");
+                  else next.set("category", event.target.value);
+                  setPagination((current) => ({ ...current, page: 1 }));
+                  setSearchParams(next);
+                }}
+              >
+                {Object.entries(CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+              <Badge tone="info">All time</Badge>
+              <p>Rate categories require at least five confirmed matches.</p>
             </div>
             {searchInput ? (
               <Button variant="ghost" size="sm" onClick={clearSearch}>
@@ -333,6 +364,7 @@ export default function Leaderboard() {
                 player={player}
                 viewer={user}
                 isCurrent={isCurrentLeaderboardPlayer(player, user?.id)}
+                category={category}
               />
             ))}
           </div>
@@ -391,7 +423,7 @@ export default function Leaderboard() {
   );
 }
 
-function LeaderboardEntry({ player, viewer, isCurrent }) {
+function LeaderboardEntry({ player, viewer, isCurrent, category }) {
   const canChallenge = canChallengeLeaderboardPlayer(viewer, player);
   return (
     <Card
@@ -419,8 +451,8 @@ function LeaderboardEntry({ player, viewer, isCurrent }) {
         </div>
       </div>
       <div className="leaderboard-entry-metrics">
-        <span><strong>{player.points}</strong> points</span>
-        <span><strong>{player.win_rate}%</strong> win rate</span>
+        <span><strong>{formatCategoryMetric(player, category)}</strong> {categoryMetricLabel(category)}</span>
+        <span><strong>{player.goals_scored}</strong> goals · <strong>{player.goal_difference > 0 ? `+${player.goal_difference}` : player.goal_difference}</strong> GD</span>
       </div>
       <div className="leaderboard-entry-actions">
         <Button
@@ -446,6 +478,25 @@ function LeaderboardEntry({ player, viewer, isCurrent }) {
       </div>
     </Card>
   );
+}
+
+function formatCategoryMetric(player, category) {
+  if (category === "goals") return player.goals_scored;
+  if (category === "wins") return player.wins;
+  if (category === "goal_difference") return player.goal_difference > 0 ? `+${player.goal_difference}` : player.goal_difference;
+  if (category === "clean_sheets") return player.clean_sheets;
+  if (category === "goals_per_match") return player.average_goals_scored.toFixed(2);
+  if (category === "best_defense") return player.average_goals_conceded.toFixed(2);
+  if (category === "win_rate") return `${player.win_rate}%`;
+  return player.points;
+}
+
+function categoryMetricLabel(category) {
+  return {
+    goals: "goals", wins: "wins", goal_difference: "goal difference",
+    clean_sheets: "clean sheets", goals_per_match: "goals per match",
+    best_defense: "conceded per match", win_rate: "win rate",
+  }[category] || "points";
 }
 
 function CompetitivePill({ label, value, tone }) {

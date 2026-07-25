@@ -17,7 +17,11 @@ const dashboardLayout = readFileSync(new URL("layouts/DashboardLayout.jsx", root
 test("the canonical premium layer loads after retained page styles", () => {
   assert.ok(main.indexOf('import "./index.css"') < main.indexOf('import "./styles/premium-theme.css"'));
   assert.match(premiumTheme, /Phase 3\.4A canonical presentation layer/);
-  assert.doesNotMatch(premiumTheme, /#[0-9a-f]{3,8}\b|rgba?\(/i);
+  assert.match(premiumTheme, /Authoritative visibility contract/);
+  const componentRules = premiumTheme.slice(
+    premiumTheme.indexOf('html[data-theme] body,', premiumTheme.indexOf("Authoritative visibility contract")),
+  );
+  assert.doesNotMatch(componentRules, /#[0-9a-f]{3,8}\b|rgba?\(/i);
 });
 
 test("light and dark themes expose one semantic palette and three elevations", () => {

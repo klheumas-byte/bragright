@@ -24,19 +24,25 @@ const MOBILE_NAVIGATION_QUERY = "(max-width: 900px), (hover: none), (pointer: co
 const DashboardLayoutContext = createContext(null);
 
 const ROUTE_META = {
-  "/dashboard": ["Competitive Command Center", "Track your record, ranking, rivals, and next move."],
+  "/dashboard": ["Player Dashboard", "See what needs attention and how you are performing."],
   "/leaderboard": ["Leaderboard", "See who owns the top spot."],
   "/profile": ["My Profile", "Your competitive identity, record, and match history."],
   "/activity": ["My Activity", "Follow every move in your private competitive journey."],
   "/head-to-head": ["Head-to-Head", "Compare rivals and settle the matchup with real records."],
   "/dashboard/matches": ["My Matches", "Track every challenge, result, and rivalry."],
-  "/dashboard/submit-match": ["Challenge Arena", "Challenge a rival and record the result."],
+  "/dashboard/submit-match": ["New Challenge", "Choose an opponent and send the match details."],
   "/admin/dashboard": ["Admin Dashboard", "Keep BragRight's competitive arena trusted and operational."],
   "/admin/profile": ["Admin Profile", "Your operator identity and recent arena actions."],
   "/admin/activity": ["Admin Activity", "Protected operational events with safe actor and related-record context."],
   "/admin/users": ["Admin Users", "Manage player access without losing sight of the competition."],
   "/admin/disputes": ["Admin Disputes", "Resolve contested results and protect the integrity of play."],
   "/admin/settings": ["Admin Settings", "Tune the rules that keep the competitive experience reliable."],
+  "/admin/payments": ["Payment Oversight", "Review collections, remittances, exemptions, and monthly access."],
+  "/payments/dashboard": ["Payment Dashboard", "Monitor your authorized collections and outstanding remittance balance."],
+  "/payments/record": ["Record Payment", "Record an identified player's monthly subscription payment."],
+  "/payments/remittances": ["Remittances", "Submit collected funds for Super Admin verification."],
+  "/payments/status": ["Subscription", "Review your monthly access and payment history."],
+  "/account/password": ["Password Settings", "Choose and protect your preferred sign-in password."],
 };
 
 export function DashboardLayoutProvider({ children }) {
@@ -183,7 +189,13 @@ export function DashboardShell() {
           <RouteErrorBoundary resetKey={`${location.pathname}${location.search}`}>
             <Suspense fallback={<RoutePageSkeleton pathname={location.pathname} />}>
               <RouteReadySignal routeKey={`${location.pathname}${location.search}`}>
-                <Outlet />
+                <div
+                  key={location.pathname}
+                  className="route-transition"
+                  data-route-kind={location.pathname.startsWith("/dashboard/") ? "workflow" : "standard"}
+                >
+                  <Outlet />
+                </div>
               </RouteReadySignal>
             </Suspense>
           </RouteErrorBoundary>

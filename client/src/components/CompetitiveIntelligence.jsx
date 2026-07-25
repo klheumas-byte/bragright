@@ -9,7 +9,7 @@ export function NextBestAction({ action, onAction }) {
   if (!action) return null;
   return <Card as="article" variant="dashboard" className={`competitive-next-action competitive-next-action--${action.tone}`}>
     <span className="competitive-next-action__icon" aria-hidden="true"><SidebarIcon name={action.tone === "danger" ? "disputes" : "bolt"} decorative /></span>
-    <div><p className="panel-kicker">Next Best Action</p><h3>{action.title}</h3><p>{action.description}</p></div>
+    <div><p className="panel-kicker">Your next move</p><h3>{action.title}</h3><p>{action.description}</p></div>
     <Button variant="primary" onClick={() => onAction?.(action)}>{action.actionLabel}</Button>
   </Card>;
 }
@@ -46,7 +46,15 @@ export function RivalryCard({ rivalry, currentPlayerId = "" }) {
   const destination = rivalry.opponentId && currentPlayerId ? `/head-to-head/${encodeURIComponent(currentPlayerId)}/${encodeURIComponent(rivalry.opponentId)}` : "";
   return <Card as="article" variant="information" className="rivalry-card">
     <div className="rivalry-card__heading"><PlayerIdentity player={{ id: rivalry.opponentId, username: rivalry.opponentName }} variant="compact" label="Top rival" /><Badge tone="prestige">{rivalry.matches} meetings</Badge></div>
-    <dl><div><dt>Wins</dt><dd>{rivalry.wins}</dd></div><div><dt>Losses</dt><dd>{rivalry.losses}</dd></div><div><dt>Draws</dt><dd>{rivalry.draws}</dd></div></dl>
+    <dl>
+      <div><dt>Wins</dt><dd>{rivalry.wins}</dd></div>
+      <div><dt>Losses</dt><dd>{rivalry.losses}</dd></div>
+      <div><dt>Draws</dt><dd>{rivalry.draws}</dd></div>
+      <div><dt>Total goals</dt><dd>{rivalry.totalGoals ?? "—"}</dd></div>
+      <div><dt>Goal difference</dt><dd>{rivalry.goalDifference > 0 ? `+${rivalry.goalDifference}` : rivalry.goalDifference ?? "—"}</dd></div>
+      <div><dt>Latest result</dt><dd>{rivalry.latestResult || "—"}</dd></div>
+      <div><dt>Biggest win</dt><dd>{rivalry.biggestWin?.score || "—"}</dd></div>
+    </dl>
     <p>{rivalry.definition}</p>{destination ? <Button as={Link} to={destination} variant="ghost" size="sm">View head-to-head</Button> : null}
   </Card>;
 }
@@ -56,7 +64,7 @@ export function HeadToHeadSummary({ comparison }) {
   if (!summary) return <EmptyState title="No head-to-head data" description="Confirmed meetings will appear here when available." />;
   return <div className="head-to-head-summary" aria-label={`${summary.playerA.username} and ${summary.playerB.username} head-to-head summary`}>
     <PlayerIdentity player={summary.playerA} variant="compact" label={`${summary.playerAWins} wins`} />
-    <dl><div><dt>Meetings</dt><dd>{summary.totalMatches}</dd></div><div><dt>Draws</dt><dd>{summary.draws}</dd></div>{summary.latestResult ? <div><dt>Latest</dt><dd>{summary.latestResult}</dd></div> : null}</dl>
+    <dl><div><dt>Meetings</dt><dd>{summary.totalMatches}</dd></div><div><dt>Draws</dt><dd>{summary.draws}</dd></div><div><dt>Goals</dt><dd>{comparison.player_a_goals ?? comparison.player_a_points}–{comparison.player_b_goals ?? comparison.player_b_points}</dd></div>{summary.latestResult ? <div><dt>Latest</dt><dd>{summary.latestResult}</dd></div> : null}</dl>
     <PlayerIdentity player={summary.playerB} variant="compact" label={`${summary.playerBWins} wins`} />
   </div>;
 }

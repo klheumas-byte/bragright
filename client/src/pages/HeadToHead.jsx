@@ -17,6 +17,11 @@ const emptyComparison = {
   draws: 0,
   player_a_points: 0,
   player_b_points: 0,
+  player_a_goals: 0,
+  player_b_goals: 0,
+  player_a_goal_difference: 0,
+  player_b_goal_difference: 0,
+  biggest_win: null,
   leader: "draw",
   most_recent_result: null,
   recent_matches: [],
@@ -112,10 +117,14 @@ export default function HeadToHead() {
       subtitle: "Confirmed wins in this rivalry only.",
     },
     {
-      id: "draws",
-      title: "Draws",
-      value: comparison.draws,
-      subtitle: "Confirmed meetings with no winner.",
+      id: "goal-difference",
+      title: "Goal Difference",
+      value: comparison.player_a_goal_difference > 0
+        ? `${comparison.player_a.username} +${comparison.player_a_goal_difference}`
+        : comparison.player_b_goal_difference > 0
+          ? `${comparison.player_b.username} +${comparison.player_b_goal_difference}`
+          : "Level",
+      subtitle: `${comparison.draws} confirmed draw${comparison.draws === 1 ? "" : "s"}.`,
     },
   ];
 
@@ -208,7 +217,7 @@ export default function HeadToHead() {
                 <p className="rivalry-player-label">Player A</p>
                 <h2 className="rivalry-player-name">{comparison.player_a.username}</h2>
                 <strong className="rivalry-player-record">{comparison.player_a_wins} wins</strong>
-                <p className="rivalry-player-copy">{comparison.player_a_points} total points scored in confirmed meetings.</p>
+                <p className="rivalry-player-copy">{comparison.player_a_goals ?? comparison.player_a_points} goals in confirmed meetings.</p>
               </article>
 
               <div className="rivalry-versus">
@@ -219,6 +228,7 @@ export default function HeadToHead() {
                     ? `Most recent result: ${comparison.most_recent_result.result_label}`
                     : "No confirmed rivalry match has been recorded yet."}
                 </p>
+                {comparison.biggest_win ? <p className="rivalry-versus-copy">Largest win: {comparison.biggest_win.score}</p> : null}
               </div>
 
               <article
@@ -227,7 +237,7 @@ export default function HeadToHead() {
                 <p className="rivalry-player-label">Player B</p>
                 <h2 className="rivalry-player-name">{comparison.player_b.username}</h2>
                 <strong className="rivalry-player-record">{comparison.player_b_wins} wins</strong>
-                <p className="rivalry-player-copy">{comparison.player_b_points} total points scored in confirmed meetings.</p>
+                <p className="rivalry-player-copy">{comparison.player_b_goals ?? comparison.player_b_points} goals in confirmed meetings.</p>
               </article>
             </div>
           </section>

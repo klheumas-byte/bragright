@@ -18,6 +18,13 @@ LOGIN_ACTIVITY_COLLECTION_NAME = "login_activity"
 ACTIVITY_LOGS_COLLECTION_NAME = "activity_logs"
 AUTH_SESSIONS_COLLECTION_NAME = "auth_sessions"
 PROOF_UPLOADS_COLLECTION_NAME = "proof_uploads"
+SUBSCRIPTIONS_COLLECTION_NAME = "subscriptions"
+PAYMENTS_COLLECTION_NAME = "payments"
+REMITTANCES_COLLECTION_NAME = "remittances"
+SUBSCRIPTION_EXEMPTIONS_COLLECTION_NAME = "subscription_exemptions"
+FINANCIAL_AUDIT_LOGS_COLLECTION_NAME = "financial_audit_logs"
+NOTIFICATIONS_COLLECTION_NAME = "notifications"
+BILLING_RUNS_COLLECTION_NAME = "billing_runs"
 
 _env_loaded = False
 _mongo_client = None
@@ -253,6 +260,22 @@ def ensure_matches_indexes(matches_collection):
         ],
         name="matches_rivalry_confirmed",
     )
+    matches_collection.create_index(
+        [
+            ("status", ASCENDING),
+            ("player_one_id", ASCENDING),
+            ("confirmed_at", DESCENDING),
+        ],
+        name="matches_statistics_player_one",
+    )
+    matches_collection.create_index(
+        [
+            ("status", ASCENDING),
+            ("player_two_id", ASCENDING),
+            ("confirmed_at", DESCENDING),
+        ],
+        name="matches_statistics_player_two",
+    )
 
 
 def get_settings_collection(config=None, logger=None):
@@ -312,6 +335,34 @@ def get_proof_uploads_collection(config=None, logger=None):
     return db[PROOF_UPLOADS_COLLECTION_NAME]
 
 
+def get_subscriptions_collection(config=None, logger=None):
+    return get_db(config=config, logger=logger)[SUBSCRIPTIONS_COLLECTION_NAME]
+
+
+def get_payments_collection(config=None, logger=None):
+    return get_db(config=config, logger=logger)[PAYMENTS_COLLECTION_NAME]
+
+
+def get_remittances_collection(config=None, logger=None):
+    return get_db(config=config, logger=logger)[REMITTANCES_COLLECTION_NAME]
+
+
+def get_subscription_exemptions_collection(config=None, logger=None):
+    return get_db(config=config, logger=logger)[SUBSCRIPTION_EXEMPTIONS_COLLECTION_NAME]
+
+
+def get_financial_audit_logs_collection(config=None, logger=None):
+    return get_db(config=config, logger=logger)[FINANCIAL_AUDIT_LOGS_COLLECTION_NAME]
+
+
+def get_notifications_collection(config=None, logger=None):
+    return get_db(config=config, logger=logger)[NOTIFICATIONS_COLLECTION_NAME]
+
+
+def get_billing_runs_collection(config=None, logger=None):
+    return get_db(config=config, logger=logger)[BILLING_RUNS_COLLECTION_NAME]
+
+
 def ensure_auth_sessions_indexes(auth_sessions_collection):
     auth_sessions_collection.create_index(
         "session_id", unique=True, name="sessions_id_unique"
@@ -342,6 +393,55 @@ def ensure_proof_uploads_indexes(proof_uploads_collection):
     proof_uploads_collection.create_index("match_id", name="uploads_match")
 
 
+def ensure_subscription_indexes(db):
+    db[SUBSCRIPTIONS_COLLECTION_NAME].create_index(
+        [("player_id", ASCENDING), ("billing_month", ASCENDING)],
+        unique=True,
+        name="subscriptions_player_month_unique",
+    )
+    db[SUBSCRIPTIONS_COLLECTION_NAME].create_index(
+        [("billing_month", ASCENDING), ("status", ASCENDING)],
+        name="subscriptions_month_status",
+    )
+    db[PAYMENTS_COLLECTION_NAME].create_index(
+        [("player_id", ASCENDING), ("billing_month", ASCENDING), ("status", ASCENDING)],
+        name="payments_player_month_status",
+    )
+    db[PAYMENTS_COLLECTION_NAME].create_index(
+        [("recorded_by", ASCENDING), ("payment_date", DESCENDING)],
+        name="payments_officer_date",
+    )
+    db[PAYMENTS_COLLECTION_NAME].create_index(
+        "deduplication_key",
+        unique=True,
+        name="payments_deduplication_unique",
+    )
+    db[REMITTANCES_COLLECTION_NAME].create_index(
+        [("payment_officer_id", ASCENDING), ("submitted_at", DESCENDING)],
+        name="remittances_officer_time",
+    )
+    db[REMITTANCES_COLLECTION_NAME].create_index(
+        [("status", ASCENDING), ("submitted_at", DESCENDING)],
+        name="remittances_status_time",
+    )
+    db[SUBSCRIPTION_EXEMPTIONS_COLLECTION_NAME].create_index(
+        [("player_id", ASCENDING), ("billing_month", ASCENDING)],
+        unique=True,
+        name="exemptions_player_month_unique",
+    )
+    db[FINANCIAL_AUDIT_LOGS_COLLECTION_NAME].create_index(
+        [("created_at", DESCENDING), ("action", ASCENDING)],
+        name="financial_audit_time_action",
+    )
+    db[NOTIFICATIONS_COLLECTION_NAME].create_index(
+        [("user_id", ASCENDING), ("created_at", DESCENDING)],
+        name="notifications_user_time",
+    )
+    db[BILLING_RUNS_COLLECTION_NAME].create_index(
+        "run_key", unique=True, name="billing_runs_key_unique"
+    )
+
+
 def ensure_database_indexes(config=None, logger=None):
     """Create all application indexes during process startup, never per request."""
     db = get_db(config=config, logger=logger)
@@ -352,6 +452,7 @@ def ensure_database_indexes(config=None, logger=None):
     ensure_activity_logs_indexes(db[ACTIVITY_LOGS_COLLECTION_NAME])
     ensure_auth_sessions_indexes(db[AUTH_SESSIONS_COLLECTION_NAME])
     ensure_proof_uploads_indexes(db[PROOF_UPLOADS_COLLECTION_NAME])
+    ensure_subscription_indexes(db)
     (logger or LOGGER).info("MongoDB indexes initialized.")
 
 

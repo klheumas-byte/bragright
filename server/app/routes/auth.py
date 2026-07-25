@@ -11,13 +11,14 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from ..db import describe_mongo_error, get_db_debug_snapshot, get_users_collection
 from ..services.activity_logger import record_activity
-from ..services.admin_access import ADMIN_ROLE, PLAYER_ROLE, get_user_role
+from ..services.admin_access import ADMIN_ROLE, PLAYER_ROLE, SUPER_ADMIN_ROLES, get_user_role
 from ..services.api_security import ErrorCode, api_error, get_json_object
 from ..services.auth_sessions import (
     RefreshSessionError,
     create_refresh_session,
     get_active_session,
     revoke_refresh_token,
+    revoke_other_user_sessions,
     revoke_session,
     revoke_token_family,
     rotate_refresh_session,
@@ -29,7 +30,18 @@ from ..services.dtos import authentication_user_dto
 auth_bp = Blueprint("auth", __name__)
 USER_STATUS_ACTIVE = "active"
 USER_STATUS_DISABLED = "disabled"
-VALID_USER_STATUSES = {USER_STATUS_ACTIVE, USER_STATUS_DISABLED}
+USER_STATUS_SUSPENDED = "suspended"
+USER_STATUS_BANNED = "banned"
+USER_STATUS_DELETED = "deleted"
+VALID_USER_STATUSES = {
+    USER_STATUS_ACTIVE,
+    USER_STATUS_SUSPENDED,
+    USER_STATUS_BANNED,
+    USER_STATUS_DISABLED,
+    USER_STATUS_DELETED,
+}
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 128
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_. -]+$")
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -39,7 +51,7 @@ def get_user_status(user):
         return USER_STATUS_ACTIVE
 
     stored_status = str(user.get("status", "")).strip().lower()
-    if stored_status in VALID_USER_STATUSES:
+    if stored_status:
         return stored_status
 
     return USER_STATUS_ACTIVE if user.get("is_active", True) else USER_STATUS_DISABLED
@@ -85,13 +97,32 @@ def _reject_untrusted_browser_origin():
         if str(value).strip()
     }
     allowed_origins.add(request.host_url.rstrip("/"))
-    if origin not in allowed_origins:
+    if origin not in allowed_origins and not _is_trusted_local_development_origin(origin):
+        current_app.logger.warning(
+            "Rejected authentication request from untrusted origin",
+            extra={"origin": origin},
+        )
         return _auth_error(
             "Request origin is not allowed.",
             403,
             "untrusted_origin",
         )
     return None
+
+
+def _is_trusted_local_development_origin(origin):
+    """Allow Vite's fallback localhost port only in a local debug environment."""
+    if current_app.config.get("IS_PRODUCTION") or not current_app.config.get("DEBUG"):
+        return False
+
+    parsed_origin = urlsplit(origin)
+    parsed_host = urlsplit(f"//{request.host}")
+    loopback_hosts = {"localhost", "127.0.0.1", "::1"}
+    return (
+        parsed_origin.scheme in {"http", "https"}
+        and (parsed_origin.hostname or "").lower() in loopback_hosts
+        and (parsed_host.hostname or "").lower() in loopback_hosts
+    )
 
 
 def get_current_user_from_request():
@@ -201,7 +232,7 @@ def require_role(*allowed_roles):
 
 
 def require_admin(view_function):
-    return require_role(ADMIN_ROLE)(view_function)
+    return require_role(ADMIN_ROLE, "super_admin")(view_function)
 
 
 def require_player(view_function):
@@ -218,7 +249,7 @@ def require_owner(owner_resolver, *, allow_admin=False):
             if error_response:
                 return error_response, status_code
 
-            if allow_admin and get_user_role(user, current_app.config) == ADMIN_ROLE:
+            if allow_admin and get_user_role(user, current_app.config) in SUPER_ADMIN_ROLES:
                 g.current_user = user
                 return view_function(*args, **kwargs)
 
@@ -320,8 +351,11 @@ def _validate_registration_payload(data):
         )
     if len(email) > 254 or not EMAIL_PATTERN.fullmatch(email):
         return None, "Enter a valid email address."
-    if len(password) < 8 or len(password) > 128:
-        return None, "Password must be between 8 and 128 characters."
+    if len(password) < PASSWORD_MIN_LENGTH or len(password) > PASSWORD_MAX_LENGTH:
+        return None, (
+            f"Password must be between {PASSWORD_MIN_LENGTH} and "
+            f"{PASSWORD_MAX_LENGTH} characters."
+        )
     return {"username": username, "email": email, "password": password}, None
 
 
@@ -361,6 +395,7 @@ def register():
             "last_login": None,
             "last_login_at": None,
             "profile_image": None,
+            "must_change_password": False,
             "updated_at": created_at,
         }
         result = users.insert_one(user_document)
@@ -535,6 +570,89 @@ def me():
     except Exception:
         current_app.logger.exception("Unexpected error during current user lookup")
         return jsonify({"success": False, "message": "Could not load the current user."}), 500
+
+
+@auth_bp.post("/password")
+@require_auth
+def change_password():
+    origin_error = _reject_untrusted_browser_origin()
+    if origin_error:
+        return origin_error
+
+    try:
+        payload, body_error = get_json_object(
+            allowed_fields={"current_password", "new_password", "confirm_password"}
+        )
+        if body_error:
+            return body_error
+        current_password = str(payload.get("current_password") or "")
+        new_password = str(payload.get("new_password") or "")
+        confirmation = str(payload.get("confirm_password") or "")
+        if not current_password:
+            return _auth_error("Current password is required.", 422, "validation_error")
+        if (
+            len(new_password) < PASSWORD_MIN_LENGTH
+            or len(new_password) > PASSWORD_MAX_LENGTH
+        ):
+            return _auth_error(
+                f"Your new password must be between {PASSWORD_MIN_LENGTH} and "
+                f"{PASSWORD_MAX_LENGTH} characters.",
+                422,
+                "validation_error",
+            )
+        if new_password != confirmation:
+            return _auth_error("New password confirmation does not match.", 422, "validation_error")
+
+        user, error_response, status_code = get_current_user_from_request()
+        if error_response:
+            return error_response, status_code
+        if not check_password_hash(user.get("password_hash") or "", current_password):
+            return _auth_error("Current password is incorrect.", 403, "invalid_current_password")
+        if check_password_hash(user["password_hash"], new_password):
+            return _auth_error(
+                "Choose a new password that is different from your current password.",
+                422,
+                "password_unchanged",
+            )
+
+        now = datetime.now(timezone.utc)
+        users = get_users_collection(config=current_app.config, logger=current_app.logger)
+        users.update_one(
+            {"_id": user["_id"]},
+            {
+                "$set": {
+                    "password_hash": generate_password_hash(new_password),
+                    "must_change_password": False,
+                    "password_changed_at": now,
+                    "updated_at": now,
+                }
+            },
+        )
+        current_session_id = str(
+            getattr(g, "access_token_claims", {}).get("sid") or ""
+        )
+        revoke_other_user_sessions(str(user["_id"]), current_session_id, now=now)
+        updated_user = users.find_one({"_id": user["_id"]})
+        g.current_user = updated_user
+        record_activity(
+            user=serialize_user(updated_user),
+            action_type="password_changed",
+            action_label="User changed password",
+            details={},
+        )
+        return jsonify(
+            {
+                "success": True,
+                "message": "Your password was updated successfully.",
+                "user": serialize_user(updated_user),
+            }
+        ), 200
+    except PyMongoError as error:
+        current_app.logger.exception("MongoDB error while changing password")
+        return jsonify({"success": False, "message": describe_mongo_error(error)}), 500
+    except Exception:
+        current_app.logger.exception("Unexpected error while changing password")
+        return jsonify({"success": False, "message": "Could not update your password."}), 500
 
 
 @auth_bp.post("/logout")

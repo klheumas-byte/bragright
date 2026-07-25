@@ -48,6 +48,7 @@ import {
   validateMatchScores,
   validateProofFile,
 } from "./matchPresentation";
+import { getPendingPlayerActions } from "../components/competitiveIntelligenceViewModel";
 
 const PAGE_SIZE = 20;
 const EMPTY_PAGINATION = {
@@ -254,8 +255,16 @@ export default function MyMatches() {
     if (activeActionKey) {
       return;
     }
-    if (actionType === "accept" || actionType === "submit-result") {
-      executeAction(match, actionType);
+    if (actionType === "accept" || actionType === "decline") {
+      navigate(`/matches/${encodeURIComponent(match.id)}/respond`);
+      return;
+    }
+    if (actionType === "submit-result") {
+      navigate(`/matches/${encodeURIComponent(match.id)}/result/submit`);
+      return;
+    }
+    if (actionType === "confirm" || actionType === "dispute") {
+      navigate(`/matches/${encodeURIComponent(match.id)}/result/confirm`);
       return;
     }
     setPendingDialog({ match, actionType });
@@ -354,13 +363,14 @@ export default function MyMatches() {
     MATCH_VIEWS.find((view) => view.id === activeView) || MATCH_VIEWS[0];
   const actionMatch = pendingDialog?.match;
   const dialogAction = pendingDialog?.actionType;
+  const actionableItems = getPendingPlayerActions(actions);
   const competitiveStats = [
     { id: "all", title: "All Matches", value: viewCounts.all || pagination.total || 0, subtitle: "All match workflows", icon: "matches", tone: "primary" },
     { id: "attention", title: "Needs Attention", value: viewCounts.attention || 0, subtitle: "Waiting on your decision", icon: "clock", tone: "warning" },
     { id: "active", title: "Active", value: viewCounts.active || 0, subtitle: "Challenges in progress", icon: "bolt", tone: "secondary" },
     { id: "completed", title: "Completed", value: viewCounts.completed || 0, subtitle: "Officially completed matches", icon: "trophy", tone: "success" },
     { id: "disputed", title: "Disputed", value: viewCounts.disputed || 0, subtitle: "Results under review", icon: "disputes", tone: "danger" },
-    { id: "notifications", title: "Notifications", value: actions.length, subtitle: "Match events in your action center", icon: "activity", tone: "primary" },
+    { id: "notifications", title: "Pending Actions", value: actionableItems.length, subtitle: "Waiting on your response", icon: "activity", tone: "warning" },
   ];
 
   function handleTabKeyDown(event, currentViewId) {
@@ -404,19 +414,41 @@ export default function MyMatches() {
       </Card>
 
       <PageSection
-        title="Competitive Summary"
-        description="A live overview of your match workflow and action-center totals."
+        className="core-match-actions"
+        title="Your match actions"
+        description={actionableItems.length ? "Complete these steps to keep your matches moving." : "No match responses or results are waiting on you."}
+        actions={<Badge tone={actionableItems.length ? "warning" : "success"}>{actionableItems.length ? `${actionableItems.length} pending` : "All caught up"}</Badge>}
       >
-        {isLoading ? (
-          <section className="stat-grid profile-competitive-summary" aria-label="Loading competitive statistics">
-            {competitiveStats.map((stat) => (
-              <Card as="article" variant="loading" className="stat-card" key={stat.id} aria-label={`Loading ${stat.title}`}>
-                <SectionSkeleton lines={3} />
+        {actionableItems.length ? (
+          <div className="dashboard-review-stack core-match-action-list">
+            {actionableItems.map((item) => (
+              <Card as="article" variant="dashboard" key={item.id} className="review-item-card core-match-action-card">
+                <div className="review-item-copy">
+                  <p className="review-item-type">Action required</p>
+                  <h3 className="review-item-title">{item.title}</h3>
+                  <p className="match-card-meta">{item.message}</p>
+                  <time className="review-item-time" dateTime={item.created_at}>
+                    {formatMatchDate(item.created_at)}
+                  </time>
+                </div>
+                <Button
+                  variant="primary"
+                  onClick={() => navigate(buildActionDestination(item))}
+                >
+                  {getActionItemLabel(item.type)}
+                </Button>
               </Card>
             ))}
-          </section>
+          </div>
         ) : (
-          <CompetitiveSummary stats={competitiveStats} label="Match Center competitive statistics" />
+          <Card variant="empty">
+            <EmptyState
+              title="No actions waiting"
+              description="New challenges and submitted results will appear here first."
+              actionLabel="Challenge a player"
+              onAction={() => navigate("/dashboard/submit-match")}
+            />
+          </Card>
         )}
       </PageSection>
 
@@ -579,31 +611,23 @@ export default function MyMatches() {
         ) : null}
       </PageSection>
 
-      {actions.length ? (
-        <PageSection title="Match notifications" description="Existing action-center links for match events.">
-          <div className="dashboard-review-stack">
-            {actions.slice(0, 5).map((item) => (
-              <Card as="article" variant="information" key={item.id} className="review-item-card">
-                <div className="review-item-copy">
-                  <p className="review-item-type">{String(item.type || "Match update").replace(/_/g, " ")}</p>
-                  <h3 className="review-item-title">{item.title}</h3>
-                  <p className="match-card-meta">{item.message}</p>
-                  <time className="review-item-time" dateTime={item.created_at}>
-                    {formatMatchDate(item.created_at)}
-                  </time>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => navigate(buildActionDestination(item))}
-                >
-                  Open match
-                </Button>
+      <PageSection
+        className="match-secondary-summary"
+        title="Match statistics"
+        description="Status totals and completed-match context."
+      >
+        {isLoading ? (
+          <section className="stat-grid profile-competitive-summary" aria-label="Loading match statistics">
+            {competitiveStats.map((stat) => (
+              <Card as="article" variant="loading" className="stat-card" key={stat.id} aria-label={`Loading ${stat.title}`}>
+                <SectionSkeleton lines={3} />
               </Card>
             ))}
-          </div>
-        </PageSection>
-      ) : null}
+          </section>
+        ) : (
+          <CompetitiveSummary stats={competitiveStats} label="Match Center statistics" />
+        )}
+      </PageSection>
 
       <Modal
         isOpen={Boolean(pendingDialog)}
@@ -821,6 +845,15 @@ function buildActionDestination(item) {
     destination.searchParams.set("matchId", matchId);
   }
   return `${destination.pathname}${destination.search}`;
+}
+
+function getActionItemLabel(type) {
+  return {
+    match_request: "Accept or decline",
+    result_required: "Enter result",
+    result_submission_required: "Enter result",
+    result_awaiting_confirmation: "Review result",
+  }[type] || "Review match";
 }
 
 function getDialogTitle(action) {

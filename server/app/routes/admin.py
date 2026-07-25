@@ -25,7 +25,14 @@ from .auth import (
     require_admin,
     serialize_user,
 )
-from ..services.admin_access import ADMIN_ROLE, PLAYER_ROLE, get_user_role, is_bootstrap_admin_email
+from ..services.admin_access import (
+    PLAYER_ROLE,
+    SUPER_ADMIN_ROLE,
+    SUPER_ADMIN_ROLES,
+    VALID_USER_ROLES,
+    get_user_role,
+    is_bootstrap_admin_email,
+)
 from ..services.activity_logger import get_activity_logs, record_activity
 from ..services.auth_sessions import revoke_user_sessions
 from ..services.api_security import (
@@ -54,9 +61,15 @@ from ..services.system_settings import get_system_settings, update_system_settin
 
 admin_bp = Blueprint("admin", __name__)
 VALID_RESOLUTION_ACTIONS = {"confirm_result", "reject_result", "override_result"}
-VALID_ROLE_UPDATES = {PLAYER_ROLE, ADMIN_ROLE}
+VALID_ROLE_UPDATES = VALID_USER_ROLES
 DEFAULT_ADMIN_LIST_LIMIT = 50
 MAX_ADMIN_LIST_LIMIT = 200
+
+
+def _valid_roles_message(field_name):
+    return f"{field_name} must be one of: {', '.join(sorted(VALID_USER_ROLES))}."
+
+
 VALID_MATCH_FILTER_STATUSES = {
     "match_requested",
     "scheduled",
@@ -97,7 +110,7 @@ def _require_admin_user():
         return None, error_response, status_code
 
     serialized_user = serialize_user(current_user)
-    if serialized_user.get("role") != ADMIN_ROLE:
+    if serialized_user.get("role") not in SUPER_ADMIN_ROLES:
         return None, jsonify({"success": False, "message": "Admin access is required."}), 403
 
     return serialized_user, None, None
@@ -251,7 +264,7 @@ def _parse_resolution_payload(payload):
 def _parse_role_payload(payload):
     next_role = str(payload.get("role", "")).strip().lower()
     if next_role not in VALID_ROLE_UPDATES:
-        return None, "Role must be either player or admin."
+        return None, _valid_roles_message("Role")
     return next_role, None
 
 
@@ -267,7 +280,7 @@ def _parse_status_payload(payload):
         return None, "Status is required."
 
     if next_status not in VALID_USER_STATUSES:
-        return None, "Status must be either active or disabled."
+        return None, f"Status must be one of: {', '.join(sorted(VALID_USER_STATUSES))}."
 
     return next_status, None
 
@@ -290,7 +303,7 @@ def _parse_create_user_payload(payload):
         return None, "A valid email address is required."
 
     if role not in VALID_ROLE_UPDATES:
-        return None, "Role must be either player or admin."
+        return None, _valid_roles_message("Role")
 
     temporary_password = str(payload.get("temporary_password", "")).strip()
     if temporary_password and len(temporary_password) < 8:
@@ -332,9 +345,9 @@ def _build_user_filters():
     query = {}
 
     if role and role not in VALID_ROLE_UPDATES:
-        return None, None, "role must be player or admin."
+        return None, None, _valid_roles_message("role")
     if status and status not in VALID_USER_STATUSES:
-        return None, None, "status must be active or disabled."
+        return None, None, f"status must be one of: {', '.join(sorted(VALID_USER_STATUSES))}."
     if len(search) > 100:
         return None, None, "search must be 100 characters or fewer."
 
@@ -360,7 +373,7 @@ def _build_user_filters():
 
 def _count_admin_users(*, exclude_user_id=None):
     users = get_users_collection(config=current_app.config, logger=current_app.logger)
-    query = {"role": ADMIN_ROLE}
+    query = {"role": {"$in": list(SUPER_ADMIN_ROLES)}}
 
     if exclude_user_id:
         try:
@@ -373,10 +386,17 @@ def _count_admin_users(*, exclude_user_id=None):
 
 def _is_last_admin_user(user_document):
     resolved_role = get_user_role(user_document, current_app.config)
-    if resolved_role != ADMIN_ROLE:
+    if resolved_role != SUPER_ADMIN_ROLE or get_user_status(user_document) != USER_STATUS_ACTIVE:
         return False
-
-    return _count_admin_users(exclude_user_id=str(user_document["_id"])) == 0
+    users = get_users_collection(config=current_app.config, logger=current_app.logger)
+    return users.count_documents(
+        {
+            "_id": {"$ne": user_document["_id"]},
+            "role": SUPER_ADMIN_ROLE,
+            "status": USER_STATUS_ACTIVE,
+            "is_active": {"$ne": False},
+        }
+    ) == 0
 
 
 def _generate_temporary_password(length=12):
@@ -416,7 +436,7 @@ def _parse_utc_datetime(value, field_name):
 def _validate_activity_filters(filters, *, allow_action_type):
     role = str(filters.get("role") or "").strip().lower()
     if role and role not in VALID_ROLE_UPDATES:
-        return "role must be player or admin."
+        return _valid_roles_message("role")
 
     user_id = str(filters.get("user") or "").strip()
     if user_id:
@@ -463,7 +483,7 @@ def _build_admin_summary_payload(current_user):
     users = get_users_collection(config=current_app.config, logger=current_app.logger)
 
     total_users = users.count_documents({})
-    total_admins = users.count_documents({"role": ADMIN_ROLE})
+    total_admins = users.count_documents({"role": {"$in": list(SUPER_ADMIN_ROLES)}})
     active_players = users.count_documents(
         {
             "$or": [{"role": PLAYER_ROLE}, {"role": {"$exists": False}}],
@@ -702,6 +722,7 @@ def create_admin_user():
             "last_login": None,
             "last_login_at": None,
             "profile_image": None,
+            "must_change_password": True,
             "updated_at": created_at,
         }
 
@@ -776,11 +797,11 @@ def update_admin_user_role(user_id):
         if current_role == next_role:
             return jsonify({"success": False, "message": "User already has that role."}), 400
 
-        if str(target_user["_id"]) == current_user["id"] and next_role != ADMIN_ROLE:
+        if str(target_user["_id"]) == current_user["id"] and next_role not in SUPER_ADMIN_ROLES:
             return jsonify({"success": False, "message": "You cannot remove your own admin role."}), 400
 
         if (
-            next_role != ADMIN_ROLE
+            next_role not in SUPER_ADMIN_ROLES
             and is_bootstrap_admin_email(target_user.get("email"), current_app.config)
         ):
             return jsonify(
@@ -790,8 +811,12 @@ def update_admin_user_role(user_id):
                 }
             ), 400
 
-        if current_role == ADMIN_ROLE and next_role != ADMIN_ROLE and _is_last_admin_user(target_user):
-            return jsonify({"success": False, "message": "You cannot remove the last admin."}), 400
+        if (
+            current_role == SUPER_ADMIN_ROLE
+            and next_role != SUPER_ADMIN_ROLE
+            and _is_last_admin_user(target_user)
+        ):
+            return jsonify({"success": False, "message": "You cannot demote the last active SuperAdmin."}), 400
 
         users = get_users_collection(config=current_app.config, logger=current_app.logger)
         users.update_one(
@@ -875,11 +900,11 @@ def update_admin_user_status(user_id):
             return jsonify({"success": False, "message": "You cannot disable your own account."}), 400
 
         if (
-            get_user_role(target_user, current_app.config) == ADMIN_ROLE
-            and next_status == USER_STATUS_DISABLED
+            get_user_role(target_user, current_app.config) in SUPER_ADMIN_ROLES
+            and next_status != USER_STATUS_ACTIVE
             and _is_last_admin_user(target_user)
         ):
-            return jsonify({"success": False, "message": "You cannot disable the last admin."}), 400
+            return jsonify({"success": False, "message": "You cannot restrict the last active SuperAdmin."}), 400
 
         users = get_users_collection(config=current_app.config, logger=current_app.logger)
         users.update_one(
@@ -892,7 +917,7 @@ def update_admin_user_status(user_id):
                 }
             },
         )
-        if next_status == USER_STATUS_DISABLED:
+        if next_status != USER_STATUS_ACTIVE:
             revoke_user_sessions(str(target_user["_id"]))
         updated_user = users.find_one({"_id": target_user["_id"]})
         record_activity(
@@ -970,6 +995,7 @@ def reset_admin_user_password(user_id):
             {
                 "$set": {
                     "password_hash": generate_password_hash(new_password),
+                    "must_change_password": True,
                     "updated_at": datetime.now(timezone.utc),
                 }
             },

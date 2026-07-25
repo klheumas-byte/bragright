@@ -9,7 +9,6 @@ import {
   PlayerHighlightGrid,
 } from "../components/EngagementCards";
 import {
-  NextBestAction,
   PerformanceInsights,
   PlayerGoalCard,
   RecentForm,
@@ -47,7 +46,6 @@ import {
 import {
   buildPerformanceInsights,
   calculateHeadToHead,
-  getNextBestAction,
   getNextCompetitiveGoal,
   getPendingPlayerActions,
   getRecentForm,
@@ -60,37 +58,6 @@ import {
   normalizeActionCenter,
   normalizeDashboardSummary,
 } from "./dashboardViewModel";
-
-const quickActions = [
-  {
-    id: "submit-match",
-    label: "Submit a match",
-    description: "Challenge a player or record a result.",
-    path: "/dashboard/submit-match",
-    icon: "matches",
-  },
-  {
-    id: "matches",
-    label: "My matches",
-    description: "Review requests, results, and disputes.",
-    path: "/dashboard/matches",
-    icon: "matches",
-  },
-  {
-    id: "leaderboard",
-    label: "Leaderboard",
-    description: "See the confirmed competitive standings.",
-    path: "/leaderboard",
-    icon: "leaderboard",
-  },
-  {
-    id: "profile",
-    label: "Profile",
-    description: "Review your public player identity.",
-    path: "/profile",
-    icon: "profile",
-  },
-];
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -176,12 +143,18 @@ export default function Dashboard() {
         return;
       }
       setRanking(
-        buildRankingContext(
+        {
+          ...buildRankingContext(
           response?.data?.leaderboard,
           user?.id,
           response?.data?.current_player,
           response?.data?.nearby_players
-        )
+          ),
+          topGoalscorers: Array.isArray(response?.data?.top_goalscorers)
+            ? response.data.top_goalscorers
+            : [],
+          scopeLabel: response?.data?.scope_label || "All time",
+        }
       );
       setLoaded((current) => ({ ...current, ranking: true }));
     } catch (error) {
@@ -249,10 +222,6 @@ export default function Dashboard() {
     [actionCenter.items]
   );
   const primaryAction = getPrimaryDashboardAction({ ...actionCenter, items: pendingActions });
-  const primaryDestination = buildActionDestination({
-    action_url: primaryAction.path,
-    related_match_id: primaryAction.matchId,
-  });
   const displayName = user?.username || user?.email || "Player";
   const stats = buildStats(summary, ranking.player);
   const notifications = useMemo(
@@ -275,13 +244,9 @@ export default function Dashboard() {
     }),
     [actionCenter.summary.actions_required, activity, summary.recent_summary]
   );
-  const nextAction = useMemo(
-    () => getNextBestAction(pendingActions),
-    [pendingActions]
-  );
   const recentForm = useMemo(
-    () => getRecentForm(summary.recent_summary, 5),
-    [summary.recent_summary]
+    () => getRecentForm(summary.current_form.length ? summary.current_form : summary.recent_summary, 5),
+    [summary.current_form, summary.recent_summary]
   );
   const insights = useMemo(
     () => buildPerformanceInsights({ matches: summary.recent_summary, summary, actionSummary: actionCenter.summary }),
@@ -298,8 +263,8 @@ export default function Dashboard() {
 
   return (
     <DashboardLayout
-      title="Competitive Command Center"
-      description="Track your record, ranking, rivals, and next move."
+      title="Player Dashboard"
+      description="See what needs attention and how you are performing."
       sidebarRank={ranking.player?.rank}
     >
       <Card
@@ -338,15 +303,21 @@ export default function Dashboard() {
         <div className="dashboard-welcome-actions">
           <Button
             variant="primary"
-            isLoading={loading.summary}
-            loadingText="Loading action..."
-            onClick={() => navigate(primaryDestination)}
+            onClick={() => navigate(buildActionDestination({
+              action_path: primaryAction.path,
+              related_match_id: primaryAction.matchId,
+            }))}
           >
-            <SidebarIcon name={primaryDestination === "/dashboard/submit-match" ? "matches" : "activity"} decorative />
+            <SidebarIcon name={pendingActions.length ? "clock" : "matches"} decorative />
             {primaryAction.label}
           </Button>
+          {pendingActions.length ? (
+            <Button as={Link} to="/dashboard/submit-match" variant="secondary">
+              Challenge player
+            </Button>
+          ) : null}
           {!user?.profile_image ? (
-            <Button as={Link} to="/profile" variant="secondary">
+            <Button as={Link} to="/profile" variant="ghost">
               Complete profile
             </Button>
           ) : null}
@@ -354,50 +325,24 @@ export default function Dashboard() {
       </Card>
 
       <PageSection
-        className="dashboard-quick-section"
-        title="Quick actions"
-        description="Go directly to your most common player tasks."
-      >
-        <nav
-          className="dashboard-quick-actions"
-          aria-label="Dashboard quick actions"
-        >
-          {quickActions.map((action) => (
-            <Card
-              as={Link}
-              variant="information"
-              className="dashboard-quick-action"
-              key={action.id}
-              to={action.path}
-            >
-              <span className="dashboard-quick-action-icon" aria-hidden="true">
-                <SidebarIcon name={action.icon} decorative />
-              </span>
-              <span className="dashboard-quick-action-copy">
-                <strong>{action.label}</strong>
-                <small>{action.description}</small>
-              </span>
-              <span className="dashboard-quick-action-arrow" aria-hidden="true">
-                {"\u2192"}
-              </span>
-            </Card>
-          ))}
-        </nav>
-      </PageSection>
-
-      <PageSection
-        title="Action Required"
-        description="Match responsibilities and notifications that require a decision."
+        className="core-match-actions"
+        title="Your match actions"
+        description={pendingActions.length ? "Respond here before checking statistics or activity." : "You have no match decisions waiting."}
         actions={
           !loading.summary && !errors.summary ? (
-            <Badge
-              tone={actionCenter.items.length ? "warning" : "success"}
-              aria-live="polite"
-            >
-              {pendingActions.length
-                ? `${pendingActions.length} to review`
-                : "All caught up"}
-            </Badge>
+            <div className="core-match-actions__header-actions">
+              <Badge
+                tone={pendingActions.length ? "warning" : "success"}
+                aria-live="polite"
+              >
+                {pendingActions.length
+                  ? `${pendingActions.length} to review`
+                  : "All caught up"}
+              </Badge>
+              <Button as={Link} to="/dashboard/matches" variant="ghost" size="sm">
+                All matches
+              </Button>
+            </div>
           ) : null
         }
       >
@@ -424,26 +369,15 @@ export default function Dashboard() {
           <Card variant="empty" className="dashboard-panel">
             <EmptyState
               title="No actions required"
-              description="New match requests, result confirmations, and dispute updates will appear here."
+              description="You’re up to date. New match requests and result confirmations will appear here."
             />
           </Card>
         )}
       </PageSection>
 
       <PageSection
-        title="Next Best Action"
-        description="The highest-priority supported step in your current competitive workflow."
-      >
-        {loading.summary && !loaded.summary ? (
-          <CompetitiveIntelligenceSkeleton variant="action" />
-        ) : errors.summary && !loaded.summary ? null : (
-          <NextBestAction action={nextAction} onAction={(item) => navigate(buildActionDestination({ action_path: item.actionPath, related_match_id: item.matchId }))} />
-        )}
-      </PageSection>
-
-      <PageSection
         title="Competitive Summary"
-        description="Your confirmed record and current leaderboard standing."
+        description="All-time performance from authoritative confirmed results."
       >
         <ErrorState
           message={errors.summary}
@@ -509,6 +443,30 @@ export default function Dashboard() {
           <RivalryCard rivalry={rivalry} currentPlayerId={user?.id} />
         </PageSection>
       ) : null}
+
+      <PageSection
+        title="Top Goalscorers"
+        description={`${ranking.scopeLabel || "All time"} · authoritative confirmed results.`}
+        actions={<Button as={Link} to="/leaderboard?category=goals" variant="ghost" size="sm">Full statistics leaderboard</Button>}
+      >
+        {loading.ranking && !loaded.ranking ? (
+          <SectionLoader lines={5} message="Loading top goalscorers..." />
+        ) : errors.ranking && !loaded.ranking ? (
+          <ErrorState message={errors.ranking} onRetry={() => loadRanking({ forceRefresh: true })} retryLabel="Retry goalscorers" />
+        ) : ranking.topGoalscorers?.length ? (
+          <ol className="statistics-leaderboard-list" aria-label={`${ranking.scopeLabel || "All time"} top goalscorers`}>
+            {ranking.topGoalscorers.map((player, index) => (
+              <li key={player.id} className={player.id === user?.id ? "statistics-leaderboard-current" : ""}>
+                <span aria-label={`Rank ${index + 1}`}>#{index + 1}</span>
+                <Link to={`/players/${player.id}`}>{player.username}</Link>
+                <strong>{player.goals_scored} goals</strong>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <Card variant="empty"><EmptyState title="No goals recorded" description="Goals will appear after a confirmed match with a recorded score." /></Card>
+        )}
+      </PageSection>
 
       <PageSection
         title="Competitive highlights"
@@ -675,63 +633,33 @@ export default function Dashboard() {
 }
 
 function buildStats(summary, ranking) {
-  const confirmedMatches = summary.wins + summary.losses + summary.draws;
   return [
-    {
-      id: "total-matches",
-      title: "Completed Matches",
-      value: String(confirmedMatches),
-      subtitle: "Confirmed results only",
-      icon: "matches",
-      tone: "primary",
-      emphasis: confirmedMatches > 0,
-    },
-    {
-      id: "wins",
-      title: "Wins",
-      value: String(summary.wins),
-      subtitle: "Confirmed wins",
-      icon: "trophy",
-      tone: "success",
-      emphasis: summary.wins > 0,
-    },
-    {
-      id: "losses",
-      title: "Losses",
-      value: String(summary.losses),
-      subtitle: "Confirmed losses",
-      icon: "disputes",
-      tone: "danger",
-      emphasis: false,
-    },
-    {
-      id: "draws",
-      title: "Draws",
-      value: String(summary.draws),
-      subtitle: "Confirmed draws",
-      icon: "balance",
-      tone: "warning",
-      emphasis: false,
-    },
-    {
-      id: "current-rank",
-      title: "Current Rank",
-      value: ranking ? `#${ranking.rank}` : "—",
-      subtitle: "Confirmed leaderboard position",
-      icon: "crown",
-      tone: "primary",
-      emphasis: Boolean(ranking),
-    },
-    {
-      id: "points",
-      title: "Points",
-      value: ranking ? String(ranking.points) : "—",
-      subtitle: "Confirmed leaderboard points",
-      icon: "bolt",
-      tone: "secondary",
-      emphasis: false,
-    },
+    metric("total-goals", "Career Goals", summary.goals_scored, "All confirmed matches", "bolt", "primary", summary.goals_scored > 0),
+    metric("goals-conceded", "Goals Conceded", summary.goals_conceded, "All confirmed matches", "disputes", "danger"),
+    metric("goal-difference", "Goal Difference", summary.goal_difference > 0 ? `+${summary.goal_difference}` : summary.goal_difference, "Scored minus conceded", "balance", summary.goal_difference >= 0 ? "success" : "danger", summary.goal_difference > 0),
+    metric("wins", "Wins", summary.wins, "Confirmed wins", "trophy", "success", summary.wins > 0),
+    metric("losses", "Losses", summary.losses, "Confirmed losses", "disputes", "danger"),
+    metric("draws", "Draws", summary.draws, "Confirmed draws", "balance", "warning"),
+    metric("win-rate", "Win Rate", `${summary.win_rate}%`, "All confirmed matches", "crown", "primary", summary.win_rate > 0),
+    metric("clean-sheets", "Clean Sheets", summary.clean_sheets, "Confirmed shutouts", "check", "success", summary.clean_sheets > 0),
+    metric("current-streak", "Current Streak", getCurrentStreakLabel(summary.current_form), "Latest confirmed form", "activity", "secondary"),
+    metric("current-rank", "Current Rank", ranking ? `#${ranking.rank}` : "—", "Confirmed leaderboard position", "crown", "primary", Boolean(ranking)),
   ];
+}
+
+function metric(id, title, value, subtitle, icon, tone, emphasis = false) {
+  return { id, title, value: String(value), subtitle, icon, tone, emphasis };
+}
+
+function getCurrentStreakLabel(form) {
+  if (!Array.isArray(form) || !form.length) return "—";
+  const first = String(form[0]?.result || "").toLowerCase();
+  if (!["win", "loss", "draw"].includes(first)) return "—";
+  const changeIndex = form.findIndex(
+    (match) => String(match?.result || "").toLowerCase() !== first
+  );
+  const streak = changeIndex === -1 ? form.length : changeIndex;
+  return `${streak}${first === "win" ? "W" : first === "loss" ? "L" : "D"}`;
 }
 
 function buildActionDestination(item) {
