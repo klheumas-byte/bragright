@@ -7,7 +7,9 @@ import {
   getLeaderboard,
   getMyActivity,
   getMyProfileMatches,
+  getPaymentSettings,
   getPublicPlayerProfile,
+  recordManualPayment,
   restoreSession,
 } from "./api.js";
 import { clearAuthSession, getAccessToken } from "./authSession.js";
@@ -161,6 +163,40 @@ test("equivalent leaderboard requests share one in-flight request", async () => 
   ]);
 
   assert.equal(leaderboardCalls, 1);
+});
+
+test("safe payment reads retry one transient network interruption", async () => {
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      throw new TypeError("Failed to fetch");
+    }
+    return jsonResponse({ success: true, data: { currency: "GHS" } });
+  };
+
+  const response = await getPaymentSettings();
+
+  assert.equal(calls, 2);
+  assert.equal(response.data.currency, "GHS");
+});
+
+test("payment mutations are not retried when their outcome is unknown", async () => {
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    throw new TypeError("Failed to fetch");
+  };
+
+  await assert.rejects(
+    recordManualPayment({}),
+    (error) => {
+      assert.equal(error.code, "NETWORK_ERROR");
+      assert.match(error.message, /may already have completed/i);
+      return true;
+    },
+  );
+  assert.equal(calls, 1);
 });
 
 test("leaderboard search and current-player context stay server-side and preserve pagination", async () => {

@@ -20,9 +20,15 @@ services:
       - key: MONGODB_DATABASE
         sync: false
       - key: FRONTEND_ORIGIN
-        sync: false
+        fromService:
+          type: web
+          name: bragright-web
+          envVarKey: RENDER_EXTERNAL_URL
       - key: ALLOWED_ORIGINS
-        sync: false
+        fromService:
+          type: web
+          name: bragright-web
+          envVarKey: RENDER_EXTERNAL_URL
       - key: AUTH_COOKIE_SECURE
         value: "true"
       - key: AUTH_COOKIE_SAMESITE
@@ -81,8 +87,11 @@ services:
       - key: NODE_VERSION
         value: 22.12.0
       - key: VITE_API_BASE_URL
-        sync: false
+        fromService:
+          type: web
+          name: bragright-api
+          envVarKey: RENDER_EXTERNAL_URL
       - key: VITE_APP_ENV
         value: production
       - key: VITE_API_TIMEOUT_MS
-        value: "15000"
+        value: "30000"

@@ -12,7 +12,7 @@ const pendingGetRequests = new Map();
 const DEFAULT_GET_CACHE_TTL_MS = 15_000;
 const API_TIMEOUT_MS = parsePositiveInteger(
   import.meta.env?.VITE_API_TIMEOUT_MS,
-  15_000
+  30_000
 );
 let refreshPromise = null;
 
@@ -21,6 +21,7 @@ async function apiRequest(path, options = {}) {
   const {
     skipAuthentication = false,
     skipAuthRefresh = false,
+    skipNetworkRetry = false,
     ...fetchOptions
   } = options;
   const requestUrl = buildApiUrl(path);
@@ -40,15 +41,19 @@ async function apiRequest(path, options = {}) {
       credentials: "include",
     });
   } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error("The API request timed out. Please try again.");
+    const transportError = createTransportError(error, requestUrl);
+    const requestMethod = String(fetchOptions.method || "GET").toUpperCase();
+    if (
+      requestMethod === "GET" &&
+      !skipNetworkRetry &&
+      ["NETWORK_ERROR", "REQUEST_TIMEOUT"].includes(transportError.code)
+    ) {
+      return apiRequest(path, {
+        ...options,
+        skipNetworkRetry: true,
+      });
     }
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      throw new Error("You appear to be offline. Reconnect and try again.");
-    }
-    throw new Error(
-      "The network connection was interrupted. Please try again."
-    );
+    throw transportError;
   }
 
   const responseText = await response.text();
@@ -414,6 +419,29 @@ function createApiError(status, message) {
   return error;
 }
 
+function createTransportError(cause, requestUrl) {
+  let code = "NETWORK_ERROR";
+  let message =
+    "BragRight could not reach the API. Check your connection and try again.";
+
+  if (cause?.name === "AbortError") {
+    code = "REQUEST_TIMEOUT";
+    message = "The API took too long to respond. Please try again.";
+  } else if (
+    typeof navigator !== "undefined" &&
+    navigator.onLine === false
+  ) {
+    code = "OFFLINE";
+    message = "You appear to be offline. Reconnect and try again.";
+  }
+
+  const error = createApiError(0, message);
+  error.code = code;
+  error.requestUrl = requestUrl;
+  error.cause = cause;
+  return error;
+}
+
 function handleAuthFailure(status) {
   if (status !== 401 && status !== 423) {
     return;
@@ -432,6 +460,18 @@ async function apiMutation(path, options) {
   const data = await apiRequest(path, options);
   clearApiCache();
   return data;
+}
+
+async function paymentMutation(path, options) {
+  try {
+    return await apiMutation(path, options);
+  } catch (error) {
+    if (["NETWORK_ERROR", "REQUEST_TIMEOUT"].includes(error?.code)) {
+      error.message =
+        "The payment service did not confirm the result. Refresh payment history before retrying; the action may already have completed.";
+    }
+    throw error;
+  }
 }
 
 export function getHealthStatus() {
@@ -1046,14 +1086,14 @@ export function getPayments(filters = {}) {
 }
 
 export function recordManualPayment(payload) {
-  return apiMutation("/payments/payments", {
+  return paymentMutation("/payments/payments", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
 export function submitPlayerPayment(payload) {
-  return apiMutation("/payments/submissions", {
+  return paymentMutation("/payments/submissions", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -1062,7 +1102,7 @@ export function submitPlayerPayment(payload) {
 export function uploadPaymentProof(file) {
   const formData = new FormData();
   formData.append("proof_image", file);
-  return apiMutation("/payments/upload-proof", {
+  return paymentMutation("/payments/upload-proof", {
     method: "POST",
     body: formData,
   });
@@ -1073,48 +1113,48 @@ export function getRemittances(filters = {}) {
 }
 
 export function submitRemittance(payload) {
-  return apiMutation("/payments/remittances", {
+  return paymentMutation("/payments/remittances", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
 export function reviewRemittance(remittanceId, payload) {
-  return apiMutation(`/payments/remittances/${remittanceId}`, {
+  return paymentMutation(`/payments/remittances/${remittanceId}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
 }
 
 export function grantSubscriptionExemption(payload) {
-  return apiMutation("/payments/exemptions", {
+  return paymentMutation("/payments/exemptions", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
 export function reverseManualPayment(paymentId, payload) {
-  return apiMutation(`/payments/payments/${paymentId}/reverse`, {
+  return paymentMutation(`/payments/payments/${paymentId}/reverse`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
 export function verifyManualPayment(paymentId) {
-  return apiMutation(`/payments/payments/${paymentId}/verify`, {
+  return paymentMutation(`/payments/payments/${paymentId}/verify`, {
     method: "POST",
   });
 }
 
 export function rejectPlayerPayment(paymentId, reason) {
-  return apiMutation(`/payments/payments/${paymentId}/reject`, {
+  return paymentMutation(`/payments/payments/${paymentId}/reject`, {
     method: "POST",
     body: JSON.stringify({ reason }),
   });
 }
 
 export function runMonthlyBilling(payload) {
-  return apiMutation("/payments/billing/run", {
+  return paymentMutation("/payments/billing/run", {
     method: "POST",
     body: JSON.stringify(payload),
   });

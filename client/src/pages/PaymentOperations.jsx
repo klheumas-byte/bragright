@@ -26,6 +26,7 @@ export default function PaymentOperations({ view = "dashboard" }) {
   const isPaymentOfficer = user?.role === "payment_officer";
   const [month, setMonth] = useState(monthNow);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [subscriptionFilter, setSubscriptionFilter] = useState("all");
   const [methodFilter, setMethodFilter] = useState("all");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
@@ -46,8 +47,8 @@ export default function PaymentOperations({ view = "dashboard" }) {
     try {
       const [dashboardResult, playerResult, paymentsResult, remittanceResult, settingsResult] = await Promise.allSettled([
         getPaymentDashboard({ billing_month: month }),
-        searchSubscriptionPlayers({ billing_month: month, search, subscription_status: subscriptionFilter }),
-        getPayments({ billing_month: month, payment_method: methodFilter, status: paymentStatusFilter, officer_id: officerFilter, player: search }),
+        searchSubscriptionPlayers({ billing_month: month, search: debouncedSearch, subscription_status: subscriptionFilter }),
+        getPayments({ billing_month: month, payment_method: methodFilter, status: paymentStatusFilter, officer_id: officerFilter, player: debouncedSearch }),
         getRemittances({ billing_month: month }),
         getPaymentSettings(),
       ]);
@@ -79,7 +80,12 @@ export default function PaymentOperations({ view = "dashboard" }) {
 
   useEffect(() => {
     load();
-  }, [month, search, subscriptionFilter, methodFilter, paymentStatusFilter, officerFilter]);
+  }, [month, debouncedSearch, subscriptionFilter, methodFilter, paymentStatusFilter, officerFilter]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   return (
     <DashboardLayout
@@ -97,7 +103,12 @@ export default function PaymentOperations({ view = "dashboard" }) {
         <span className="ui-badge ui-badge--neutral">{isSuperAdmin ? "Super Admin oversight" : "Private officer ledger"}</span>
       </section>
 
-      {feedback.message ? <div className={`ui-alert ui-alert--${feedback.type === "error" ? "danger" : "success"}`} role="status">{feedback.message}</div> : null}
+      {feedback.message ? (
+        <div className={`ui-alert ui-alert--${feedback.type === "error" ? "danger" : "success"}`} role="status">
+          <span>{feedback.message}</span>
+          {feedback.type === "error" ? <button className="ui-button ui-button--secondary" type="button" onClick={load}>Retry</button> : null}
+        </div>
+      ) : null}
 
       {view === "record" ? (
         <RecordPaymentForm players={players} month={month} settings={settings} onSaved={handleSaved} onError={handleError} />
