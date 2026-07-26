@@ -13,7 +13,7 @@ import { getPlayers } from "../services/api";
 const PlayerDirectoryContext = createContext(null);
 
 export function PlayerDirectoryProvider({ children }) {
-  const { isAuthenticated, isInitializing } = useAuth();
+  const { isAuthenticated, isInitializing, user } = useAuth();
   const { trackLoading } = useLoading();
   const [players, setPlayers] = useState([]);
   const [isLoadingPlayers, setIsLoadingPlayers] = useState(false);
@@ -43,7 +43,7 @@ export function PlayerDirectoryProvider({ children }) {
       return;
     }
 
-    if (!isAuthenticated) {
+    if (!isAuthenticated || user?.role === "payment_officer") {
       setPlayers([]);
       setPlayersError("");
       setIsLoadingPlayers(false);
@@ -51,7 +51,7 @@ export function PlayerDirectoryProvider({ children }) {
     }
 
     refreshPlayers();
-  }, [isAuthenticated, isInitializing, refreshPlayers]);
+  }, [isAuthenticated, isInitializing, refreshPlayers, user?.role]);
 
   const value = useMemo(
     () => ({

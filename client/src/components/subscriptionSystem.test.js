@@ -10,6 +10,7 @@ const navigation = readFileSync(new URL("components/sidebarNavigation.js", root)
 const operations = readFileSync(new URL("pages/PaymentOperations.jsx", root), "utf8");
 const status = readFileSync(new URL("pages/SubscriptionStatus.jsx", root), "utf8");
 const api = readFileSync(new URL("services/api.js", root), "utf8");
+const playerDirectory = readFileSync(new URL("context/PlayerDirectoryContext.jsx", root), "utf8");
 const theme = readFileSync(new URL("styles/premium-theme.css", root), "utf8");
 
 test("payment officers receive only payment navigation and role-scoped routes", () => {
@@ -19,6 +20,7 @@ test("payment officers receive only payment navigation and role-scoped routes", 
   assert.match(sidebar, /user\?\.role === "payment_officer"[\s\S]*?PAYMENT_NAVIGATION_ITEMS/);
   assert.match(app, /allowedRoles=\{\["payment_officer"\]\}/);
   assert.match(app, /\/admin\/payments[\s\S]*?requireAdmin/);
+  assert.match(playerDirectory, /user\?\.role === "payment_officer"/);
 });
 
 test("restricted players are centralized onto the subscription status route", () => {

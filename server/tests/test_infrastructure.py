@@ -217,6 +217,28 @@ def test_cors_allows_only_configured_origin(client):
     assert "Access-Control-Allow-Origin" not in denied.headers
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/payments/payments?billing_month=2026-07",
+        "/api/payments/remittances?billing_month=2026-07",
+    ],
+)
+def test_cors_preflight_does_not_validate_follow_up_query_parameters(client, path):
+    response = client.options(
+        path,
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["Access-Control-Allow-Origin"] == "http://localhost:5173"
+    assert "authorization" in response.headers["Access-Control-Allow-Headers"].lower()
+
+
 def test_render_spa_routes_do_not_rewrite_api_to_index():
     render_config = (
         Path(__file__).resolve().parents[2] / "render.yaml"

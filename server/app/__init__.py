@@ -216,6 +216,14 @@ def create_app(config_class=Config):
         )
         g.request_started_at = time.perf_counter()
 
+        # CORS preflight requests describe the eventual request but do not
+        # execute an application endpoint. Shared GET/POST paths can resolve
+        # OPTIONS to the POST endpoint, whose query allowlist is intentionally
+        # empty. Leave preflight validation to Flask-CORS and validate the
+        # actual follow-up request against its correctly resolved endpoint.
+        if request.method == "OPTIONS":
+            return None
+
         rate_limit_config = rate_limited_endpoints.get(request.endpoint)
         if rate_limit_config:
             scope, setting_name = rate_limit_config
