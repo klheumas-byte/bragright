@@ -55,11 +55,47 @@ def test_acceptance_revalidates_expiry_and_marks_stale_request_expired(
     match = schedule(client, alpha_headers, beta["_id"])
     matches.update_one(
         {"_id": __import__("bson").ObjectId(match["id"])},
-        {"$set": {"request_expires_at": datetime.now(timezone.utc) - timedelta(seconds=1)}},
+        {
+            "$set": {
+                "request_expires_at": (
+                    datetime.now(timezone.utc) - timedelta(seconds=1)
+                ).replace(tzinfo=None)
+            }
+        },
     )
     response = client.post(f"/api/matches/{match['id']}/accept", headers=beta_headers)
     assert response.status_code == 409
     assert matches.find_one({"_id": __import__("bson").ObjectId(match["id"])})["status"] == "expired"
+
+
+def test_acceptance_handles_naive_mongodb_expiry_and_advances_to_result(
+    client, create_user, matches
+):
+    alpha = create_user("naive-alpha@example.com", username="Alpha")
+    beta = create_user("naive-beta@example.com", username="Beta")
+    alpha_headers = login(client, "naive-alpha@example.com")
+    beta_headers = login(client, "naive-beta@example.com")
+    match = schedule(client, alpha_headers, beta["_id"])
+    matches.update_one(
+        {"_id": __import__("bson").ObjectId(match["id"])},
+        {
+            "$set": {
+                "request_expires_at": (
+                    datetime.now(timezone.utc) + timedelta(days=1)
+                ).replace(tzinfo=None)
+            }
+        },
+    )
+
+    response = client.post(f"/api/matches/{match['id']}/accept", headers=beta_headers)
+
+    assert response.status_code == 200
+    assert response.json["data"]["status"] == "pending_result"
+    assert response.json["data"]["can_submit_result"] is True
+    stored = matches.find_one({"_id": __import__("bson").ObjectId(match["id"])})
+    assert stored["status"] == "pending_result"
+    assert stored["accepted_by"] == str(beta["_id"])
+    assert stored["accepted_at"] is not None
 
 
 def test_decline_requires_reason_and_preserves_actor_and_note(

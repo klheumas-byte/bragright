@@ -35,7 +35,8 @@ export default function App() {
   return (
     <>
       <RouteProgress />
-      <Routes>
+      <Suspense fallback={<AuthPageSkeleton />}>
+        <Routes>
           <Route path="/" element={<MainLayout />}>
             <Route index element={<Home />} />
             <Route path="login" element={<Login />} />
@@ -78,8 +79,9 @@ export default function App() {
           <Route path="/matches/:matchId/respond" element={<ProtectedRoute requireSubscription><MatchAction mode="respond" /></ProtectedRoute>} />
           <Route path="/matches/:matchId/result/submit" element={<ProtectedRoute requireSubscription><MatchAction mode="submit" /></ProtectedRoute>} />
           <Route path="/matches/:matchId/result/confirm" element={<ProtectedRoute requireSubscription><MatchAction mode="confirm" /></ProtectedRoute>} />
-          <Route path="*" element={<Suspense fallback={<AuthPageSkeleton />}><NotFound /></Suspense>} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
+      </Suspense>
     </>
   );
 }

@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { buildMatchActionDestination } from "../notifications/notificationEventRegistry.js";
+import { getMatchPhaseDestination } from "./matchPhaseNavigation.js";
 
 const app = readFileSync(new URL("../App.jsx", import.meta.url), "utf8");
+const main = readFileSync(new URL("../main.jsx", import.meta.url), "utf8");
 const action = readFileSync(new URL("./MatchAction.jsx", import.meta.url), "utf8");
 const layout = readFileSync(new URL("../layouts/MatchActionLayout.jsx", import.meta.url), "utf8");
 const submit = readFileSync(new URL("./SubmitMatch.jsx", import.meta.url), "utf8");
@@ -26,6 +28,58 @@ test("result entry requires review and confirmation shows the exact score", () =
   assert.match(action, /Once confirmed, this result may affect rankings and statistics/);
   assert.match(app, /\/matches\/:matchId\/result\/submit/);
   assert.match(app, /\/matches\/:matchId\/result\/confirm/);
+});
+
+test("accepting a match always advances to the result phase", () => {
+  assert.equal(
+    getMatchPhaseDestination(
+      { id: "match/1", status: "pending_result", can_submit_result: true },
+      "respond"
+    ),
+    "/matches/match%2F1/result/submit"
+  );
+  assert.equal(
+    getMatchPhaseDestination(
+      { id: "match-2", status: "pending_result", can_submit_result: true },
+      "sent"
+    ),
+    "/matches/match-2/result/submit"
+  );
+  assert.equal(
+    getMatchPhaseDestination(
+      { id: "match-3", status: "match_requested", can_submit_result: false },
+      "respond"
+    ),
+    ""
+  );
+  assert.match(action, /getMatchPhaseDestination\(loadedMatch, mode\)/);
+  assert.match(action, /navigate\(phaseDestination, \{ replace: true \}\)/);
+  assert.match(
+    action,
+    /setMatch\(acceptedMatch\);\s*setSuccess\(""\);\s*setActiveMode\("submit"\);\s*navigate\(phaseDestination, \{ replace: true \}\);/
+  );
+  assert.match(action, /else if \(activeMode === "submit"\)/);
+  assert.match(
+    matches,
+    /if \(actionType === "accept"\) \{\s*executeAction\(match, actionType\);\s*return;/
+  );
+  assert.match(
+    matches,
+    /getMatchPhaseDestination\(acceptedMatch, "respond"\)[\s\S]*?navigate\(phaseDestination, \{ replace: true \}\);/
+  );
+  assert.match(
+    action,
+    /useEffect\(\(\) => \{\s*setActiveMode\(mode\);\s*setSuccess\(""\);\s*loadMatch\(\);\s*\}, \[matchId, mode\]\);/
+  );
+  assert.doesNotMatch(action, /response && alreadyPlayed/);
+});
+
+test("lazy match-phase navigation is protected by transitions and Suspense", () => {
+  assert.match(main, /<HashRouter future=\{\{ v7_startTransition: true \}\}>/);
+  assert.match(
+    app,
+    /<Suspense fallback=\{<AuthPageSkeleton \/>\}>\s*<Routes>[\s\S]*?\/matches\/:matchId\/result\/submit[\s\S]*?<\/Routes>\s*<\/Suspense>/
+  );
 });
 
 test("focused layout excludes dashboard analytics and supports safe mobile actions", () => {

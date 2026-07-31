@@ -101,6 +101,14 @@ def now_utc():
     return datetime.now(timezone.utc)
 
 
+def ensure_utc_datetime(value):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def serialize_datetime(value):
     return value.isoformat() if value else None
 

@@ -15,7 +15,7 @@ import "./styles/premium-theme.css";
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <ThemeProvider>
-      <HashRouter>
+      <HashRouter future={{ v7_startTransition: true }}>
         <AppErrorBoundary>
           <LoadingProvider>
             <AuthProvider>

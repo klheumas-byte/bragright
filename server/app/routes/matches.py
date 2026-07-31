@@ -37,6 +37,7 @@ from ..services.match_workflow import (
     MATCH_STATUS_PENDING_RESULT,
     build_invalid_transition_error,
     calculate_winner_id,
+    ensure_utc_datetime,
     format_match_status,
     get_match_opponent_id,
     get_match_participant_role,
@@ -973,7 +974,7 @@ def accept_match(match_id):
                 }
             ), 200
 
-        expires_at = match.get("request_expires_at")
+        expires_at = ensure_utc_datetime(match.get("request_expires_at"))
         if expires_at and expires_at <= now_utc():
             expired_at = now_utc()
             matches.update_one(

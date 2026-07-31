@@ -15,6 +15,7 @@ import {
   submitMatchResult,
   uploadMatchProof,
 } from "../services/api";
+import { getMatchPhaseDestination } from "./matchPhaseNavigation";
 import { validateMatchScores, validateProofFile } from "./matchPresentation";
 
 const DECLINE_REASONS = [
@@ -33,6 +34,7 @@ export default function MatchAction({ mode }) {
   const { matchId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [activeMode, setActiveMode] = useState(mode);
   const [match, setMatch] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -52,7 +54,11 @@ export default function MatchAction({ mode }) {
     reason: "", explanation: "", mine: "", opponent: "", proof: null,
   });
 
-  useEffect(() => { loadMatch(); }, [matchId]);
+  useEffect(() => {
+    setActiveMode(mode);
+    setSuccess("");
+    loadMatch();
+  }, [matchId, mode]);
   useEffect(() => {
     if (!proof) { setProofPreview(""); return undefined; }
     const url = URL.createObjectURL(proof);
@@ -64,7 +70,13 @@ export default function MatchAction({ mode }) {
     setLoading(true); setError("");
     try {
       const response = await getMatchDetail(matchId, { forceRefresh: true });
-      setMatch(response.data);
+      const loadedMatch = response.data;
+      setMatch(loadedMatch);
+      const phaseDestination = getMatchPhaseDestination(loadedMatch, mode);
+      if (phaseDestination) {
+        setActiveMode("submit");
+        navigate(phaseDestination, { replace: true });
+      }
     } catch (loadError) {
       setError(loadError.message || "This match could not be loaded.");
     } finally {
@@ -100,7 +112,16 @@ export default function MatchAction({ mode }) {
 
   async function accept() {
     const response = await runMutation(() => acceptMatch(matchId), "Match accepted");
-    if (response && alreadyPlayed) navigate(`/matches/${matchId}/result/submit`, { replace: true });
+    if (response) {
+      const acceptedMatch = response.data || response.match;
+      const phaseDestination =
+        getMatchPhaseDestination(acceptedMatch, "respond") ||
+        `/matches/${encodeURIComponent(matchId)}/result/submit`;
+      setMatch(acceptedMatch);
+      setSuccess("");
+      setActiveMode("submit");
+      navigate(phaseDestination, { replace: true });
+    }
   }
 
   async function declineRequest() {
@@ -192,23 +213,23 @@ export default function MatchAction({ mode }) {
     respond: "Respond to match request",
     submit: reviewing ? "Review result" : "Enter match result",
     confirm: confirming ? "Confirm this result?" : rejecting ? "Reject result" : "Confirm result",
-  }[mode];
+  }[activeMode];
 
   let content;
   let actions;
   if (success) {
     content = <Completion message={success} match={match} />;
     actions = <><Button as={Link} to={`/dashboard/matches?matchId=${matchId}`} variant="primary">Open match</Button><Button as={Link} to="/dashboard/matches" variant="secondary">Return to matches</Button></>;
-  } else if (mode === "sent") {
+  } else if (activeMode === "sent") {
     content = <Card variant="dashboard" className="match-action-decision"><h2>{match.status_message}</h2><p>The opponent must respond before a result can be entered.</p></Card>;
     actions = <Button as={Link} to="/dashboard/matches" variant="primary">Return to matches</Button>;
-  } else if (mode === "respond") {
+  } else if (activeMode === "respond") {
     const stale = !match.can_accept;
     content = stale ? <StaleState match={match} /> : declining ? (
       <DeclineForm value={decline} onChange={setDecline} />
     ) : <Card variant="dashboard" className="match-action-decision"><h2>Has this match already been played?</h2><Radio name="played" label="No, it is upcoming" checked={!alreadyPlayed} onChange={() => setAlreadyPlayed(false)} /><Radio name="played" label="Yes, we already played" checked={alreadyPlayed} onChange={() => setAlreadyPlayed(true)} /></Card>;
     actions = stale ? <Button as={Link} to="/dashboard/matches" variant="primary">Return to matches</Button> : declining ? <><Button variant="ghost" disabled={busy} onClick={() => setDeclining(false)}>Back</Button><Button variant="danger" isLoading={busy} loadingText="Declining…" onClick={declineRequest}>Decline match</Button></> : <><Button variant="ghost" disabled={busy} onClick={() => setDeclining(true)}>Decline</Button><Button variant="primary" isLoading={busy} loadingText="Accepting…" onClick={accept}>{alreadyPlayed ? "Accept and Enter Result" : "Accept Match"}</Button></>;
-  } else if (mode === "submit") {
+  } else if (activeMode === "submit") {
     const stale = !match.can_submit_result;
     content = stale ? <StaleState match={match} /> : reviewing ? <ResultReview match={match} scores={scores} orientation={orientation} playedAt={playedAt} proofPreview={proofPreview} /> : <ResultForm scores={scores} setScores={setScores} playedAt={playedAt} setPlayedAt={setPlayedAt} proof={proof} setProof={setProof} proofPreview={proofPreview} onSubmit={reviewResult} orientation={orientation} busy={busy} />;
     actions = stale ? <Button as={Link} to="/dashboard/matches" variant="primary">Return to matches</Button> : reviewing ? <><Button variant="ghost" disabled={busy} onClick={() => setReviewing(false)}>Edit Result</Button><Button variant="primary" isLoading={busy} loadingText="Submitting…" onClick={submitResult}>Submit Result</Button></> : <Button type="submit" form="focused-result-form" variant="primary">Review Result</Button>;
@@ -218,7 +239,7 @@ export default function MatchAction({ mode }) {
     actions = stale ? <Button as={Link} to="/dashboard/matches" variant="primary">Return to matches</Button> : rejecting ? <><Button variant="ghost" disabled={busy} onClick={() => setRejecting(false)}>Back</Button><Button variant="danger" isLoading={busy} loadingText="Rejecting…" onClick={rejectResult}>Reject Result</Button></> : confirming ? <><Button variant="ghost" disabled={busy} onClick={() => setConfirming(false)}>Back</Button><Button variant="success" isLoading={busy} loadingText="Confirming…" onClick={() => runMutation(() => confirmMatch(matchId), "Result confirmed. Statistics updated")}>Confirm Result</Button></> : <><Button variant="danger" disabled={busy} onClick={() => setRejecting(true)}>Reject Result</Button><Button variant="success" disabled={busy} onClick={() => setConfirming(true)}>Confirm Result</Button></>;
   }
 
-  return <MatchActionLayout title={title} instruction={instructionFor(mode, reviewing, confirming)} match={match} actions={actions}><ErrorState message={error} onRetry={loadMatch} retryLabel="Refresh match" />{content}</MatchActionLayout>;
+  return <MatchActionLayout title={title} instruction={instructionFor(activeMode, reviewing, confirming)} match={match} actions={actions}><ErrorState message={error} onRetry={loadMatch} retryLabel="Refresh match" />{content}</MatchActionLayout>;
 }
 
 function ResultForm({ scores, setScores, playedAt, setPlayedAt, proof, setProof, proofPreview, onSubmit, orientation, busy }) {

@@ -48,6 +48,7 @@ import {
   validateMatchScores,
   validateProofFile,
 } from "./matchPresentation";
+import { getMatchPhaseDestination } from "./matchPhaseNavigation";
 import { getPendingPlayerActions } from "../components/competitiveIntelligenceViewModel";
 
 const PAGE_SIZE = 20;
@@ -255,7 +256,11 @@ export default function MyMatches() {
     if (activeActionKey) {
       return;
     }
-    if (actionType === "accept" || actionType === "decline") {
+    if (actionType === "accept") {
+      executeAction(match, actionType);
+      return;
+    }
+    if (actionType === "decline") {
       navigate(`/matches/${encodeURIComponent(match.id)}/respond`);
       return;
     }
@@ -300,6 +305,14 @@ export default function MyMatches() {
       }
       setFeedback({ type: "success", message: response.message });
       setPendingDialog(null);
+      if (actionType === "accept") {
+        const acceptedMatch = response.data || response.match;
+        const phaseDestination =
+          getMatchPhaseDestination(acceptedMatch, "respond") ||
+          `/matches/${encodeURIComponent(match.id)}/result/submit`;
+        navigate(phaseDestination, { replace: true });
+        return;
+      }
       if (actionType === "submit-result") {
         setResultDrafts((current) => ({ ...current, [match.id]: EMPTY_DRAFT }));
         setProofFiles((current) => ({ ...current, [match.id]: null }));
