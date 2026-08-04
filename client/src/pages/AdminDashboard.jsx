@@ -4,6 +4,8 @@ import ActivityList from "../components/ActivityList";
 import ErrorState from "../components/ErrorState";
 import SectionLoader from "../components/SectionLoader";
 import SidebarIcon from "../components/SidebarIcon";
+import TrophyWatermark from "../components/TrophyWatermark";
+import { Card, EmptyState, PageSection } from "../components/ui";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
 import { getAdminSummary } from "../services/api";
@@ -98,7 +100,8 @@ export default function AdminDashboard() {
       description="Keep BragRight's competitive arena trusted and operational."
       showBackButton={false}
     >
-      <section className="feature-hero-card admin-hero-card">
+      <Card as="section" variant="dashboard" className="feature-hero-card admin-hero-card">
+        <TrophyWatermark />
         <div>
           <p className="section-label">Admin</p>
           <h2 className="feature-hero-title">System overview.</h2>
@@ -108,63 +111,54 @@ export default function AdminDashboard() {
           <p className="feature-callout-label">Admin accounts</p>
           <p className="feature-callout-value">{summary.total_admins}</p>
         </div>
-      </section>
+      </Card>
 
       <ErrorState message={feedback.type === "error" ? feedback.message : ""} onRetry={loadSummary} />
 
-      <section className="dashboard-panel admin-action-panel" aria-labelledby="admin-quick-actions-title">
-        <div className="panel-header">
-          <div>
-            <p className="panel-kicker">Quick actions</p>
-            <h2 className="panel-title" id="admin-quick-actions-title">What would you like to manage?</h2>
+      <PageSection title="Quick actions" description="What would you like to manage?">
+        <Card as="nav" variant="dashboard" className="admin-action-panel">
+          <div className="admin-quick-actions">
+            {adminActions.map((action) => (
+              <Link className="admin-quick-action" to={action.to} key={action.to}>
+                <span className="admin-quick-action-icon" aria-hidden="true">
+                  <SidebarIcon name={action.icon} decorative />
+                </span>
+                <span className="admin-quick-action-copy">
+                  <strong>{action.label}</strong>
+                  <small>{action.copy}</small>
+                </span>
+                <span className="admin-quick-action-arrow" aria-hidden="true">→</span>
+              </Link>
+            ))}
           </div>
-        </div>
-        <div className="admin-quick-actions">
-          {adminActions.map((action) => (
-            <Link className="admin-quick-action" to={action.to} key={action.to}>
-              <span className="admin-quick-action-icon" aria-hidden="true">
-                <SidebarIcon name={action.icon} decorative />
-              </span>
-              <span className="admin-quick-action-copy">
-                <strong>{action.label}</strong>
-                <small>{action.copy}</small>
-              </span>
-              <span className="admin-quick-action-arrow" aria-hidden="true">→</span>
-            </Link>
-          ))}
-        </div>
-      </section>
+        </Card>
+      </PageSection>
 
       {isLoading ? (
         <SectionLoader lines={6} message="Loading admin dashboard..." />
       ) : (
         <>
-          <section className="admin-summary-grid">
-            {cards.map((card) => (
-              <article key={card.id} className="admin-summary-card">
-                <p className="panel-kicker">{card.label}</p>
-                <strong className="admin-summary-value">{card.value}</strong>
-                <p className="panel-subtitle">{card.copy}</p>
-              </article>
-            ))}
-          </section>
+          <PageSection title="System summary" description="Live counts across accounts and moderation queues.">
+            <section className="admin-summary-grid">
+              {cards.map((card) => (
+                <Card as="article" variant="dashboard" className="admin-summary-card" key={card.id}>
+                  <p className="panel-kicker">{card.label}</p>
+                  <strong className="admin-summary-value">{card.value}</strong>
+                  <p className="panel-subtitle">{card.copy}</p>
+                </Card>
+              ))}
+            </section>
+          </PageSection>
 
-          <section className="dashboard-panel">
-            <div className="panel-header">
-              <div>
-                <p className="panel-kicker">Recent Activity</p>
-                <h2 className="panel-title">Latest platform events</h2>
-              </div>
-            </div>
-
+          <PageSection title="Recent Activity" description="Latest platform events.">
             {summary.recent_activity.length ? (
               <ActivityList activities={summary.recent_activity} admin compact label="Latest platform events" />
             ) : (
-              <div className="match-empty-state">
-                <p className="empty-state-copy">No recent platform activity has been recorded yet.</p>
-              </div>
+              <Card variant="empty">
+                <EmptyState title="No recent activity" description="No recent platform activity has been recorded yet." />
+              </Card>
             )}
-          </section>
+          </PageSection>
         </>
       )}
     </DashboardLayout>

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { getApiAssetUrl } from "../services/api";
-import { getAvatarInitials } from "./avatarViewModel";
+import { getAvatarColorway, getAvatarInitials } from "./avatarViewModel";
 import SidebarIcon from "./SidebarIcon";
 
 export default function ProfileAvatar({
   image,
   name = "",
+  seed = "",
   className = "",
   size = "lg",
   isWinner = false,
@@ -17,6 +18,7 @@ export default function ProfileAvatar({
   const [imageLoaded, setImageLoaded] = useState(false);
   const accessibleName = String(name || "").trim() || "Player";
   const initials = getAvatarInitials(name, "");
+  const colorway = getAvatarColorway(seed || name);
 
   useEffect(() => {
     setImageFailed(false);
@@ -30,6 +32,7 @@ export default function ProfileAvatar({
       className={[
         "profile-avatar",
         `profile-avatar--${size}`,
+        `profile-avatar--colorway-${colorway}`,
         isWinner ? "profile-avatar--winner" : "",
         isCurrent ? "profile-avatar--current" : "",
         className,

@@ -4,6 +4,7 @@ import ActivityList from "../components/ActivityList";
 import ErrorState from "../components/ErrorState";
 import ProfileAvatar from "../components/ProfileAvatar";
 import SectionLoader from "../components/SectionLoader";
+import { Badge, Card, EmptyState, PageSection } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import { getAdminProfile } from "../services/api";
 import DashboardLayout from "../layouts/DashboardLayout";
@@ -72,7 +73,7 @@ export default function AdminProfile() {
         <SectionLoader lines={8} message="Loading admin profile..." />
       ) : (
         <>
-          <section className="profile-hero-card">
+          <Card as="section" variant="dashboard" className="profile-hero-card">
             <div className="profile-hero-layout">
               <div className="profile-identity-block">
                 <ProfileAvatar
@@ -87,10 +88,10 @@ export default function AdminProfile() {
                   <h2 className="profile-hero-title">{profile.username || user?.username || "Admin"}</h2>
                   <p className="profile-hero-email">{profile.email || user?.email || "—"}</p>
                   <div className="profile-match-badges">
-                    <span className="match-status-badge match-status-pending">Admin</span>
-                    <span className={`match-status-badge ${profile.status === "active" ? "match-status-confirmed" : "match-status-rejected"}`}>
+                    <Badge tone="info">Admin</Badge>
+                    <Badge tone={profile.status === "active" ? "success" : "danger"}>
                       {profile.status || "active"}
-                    </span>
+                    </Badge>
                   </div>
                 </div>
               </div>
@@ -110,16 +111,9 @@ export default function AdminProfile() {
                 </div>
               </div>
             </div>
-          </section>
+          </Card>
 
-          <section className="dashboard-panel">
-            <div className="panel-header">
-              <div>
-                <p className="panel-kicker">Quick Links</p>
-                <h2 className="panel-title">Admin tools</h2>
-              </div>
-            </div>
-
+          <PageSection title="Quick Links" description="Admin tools.">
             <div className="action-card-grid">
               {profile.quick_links.map((link) => (
                 <Link key={link.to} className="action-card action-card-clickable action-card-neutral" to={link.to}>
@@ -130,33 +124,28 @@ export default function AdminProfile() {
                 </Link>
               ))}
             </div>
-          </section>
+          </PageSection>
 
-          <section className="admin-summary-grid">
-            {accessCards.map((card) => (
-              <article key={card.label} className="admin-summary-card">
-                <p className="panel-kicker">{card.label}</p>
-                <strong className="admin-summary-value">{card.value}</strong>
-              </article>
-            ))}
-          </section>
+          <PageSection title="Access summary" description="Your current administrative scope.">
+            <section className="admin-summary-grid">
+              {accessCards.map((card) => (
+                <Card as="article" variant="dashboard" className="admin-summary-card" key={card.label}>
+                  <p className="panel-kicker">{card.label}</p>
+                  <strong className="admin-summary-value">{card.value}</strong>
+                </Card>
+              ))}
+            </section>
+          </PageSection>
 
-          <section className="dashboard-panel">
-            <div className="panel-header">
-              <div>
-                <p className="panel-kicker">Recent Admin Activity</p>
-                <h2 className="panel-title">Your latest actions</h2>
-              </div>
-            </div>
-
+          <PageSection title="Recent Admin Activity" description="Your latest actions.">
             {profile.recent_admin_activity.length ? (
               <ActivityList activities={profile.recent_admin_activity} admin compact label="Your latest admin actions" />
             ) : (
-              <div className="match-empty-state">
-                <p className="empty-state-copy">No admin activity has been recorded yet.</p>
-              </div>
+              <Card variant="empty">
+                <EmptyState title="No admin activity" description="No admin activity has been recorded yet." />
+              </Card>
             )}
-          </section>
+          </PageSection>
         </>
       )}
     </DashboardLayout>

@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import ErrorState from "../components/ErrorState";
 import PlayerIdentity from "../components/PlayerIdentity";
-import SectionLoader from "../components/SectionLoader";
 import SuccessAlert from "../components/SuccessAlert";
-import { Button, Modal } from "../components/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  DataTable,
+  Field,
+  Modal,
+  PageSection,
+  Select,
+} from "../components/ui";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
 import {
@@ -27,6 +35,12 @@ const initialCreateUserState = {
   email: "",
   role: "player",
 };
+
+const USER_ROLE_OPTIONS = [
+  { value: "player", label: "Player" },
+  { value: "payment_officer", label: "Payment Officer" },
+  { value: "super_admin", label: "Super Admin" },
+];
 
 export default function AdminUsers() {
   const { trackLoading } = useLoading();
@@ -231,12 +245,47 @@ export default function AdminUsers() {
     await action();
   }
 
+  const columns = [
+    {
+      id: "username",
+      header: "Username",
+      cell: (user) => (
+        <div className="admin-users-cell">
+          <PlayerIdentity
+            player={user}
+            variant="admin"
+            showUsername={false}
+            showBadges={false}
+            showPrivateMeta={false}
+          />
+          <p className="admin-users-secondary">Created {formatDate(user.created_at)}</p>
+        </div>
+      ),
+    },
+    { id: "email", header: "Email", accessor: "email" },
+    {
+      id: "role",
+      header: "Role",
+      cell: (user) => <Badge tone={user.role === "admin" ? "warning" : "success"}>{user.role}</Badge>,
+    },
+    {
+      id: "status",
+      header: "Status",
+      cell: (user) => <Badge tone={user.status === "active" ? "success" : "danger"}>{user.status}</Badge>,
+    },
+    {
+      id: "last_login",
+      header: "Last login",
+      cell: (user) => formatDate(user.last_login_at),
+    },
+  ];
+
   return (
     <DashboardLayout
       title="Admin Users"
       description="Manage player access without losing sight of the competition."
     >
-      <section className="feature-hero-card">
+      <Card as="section" variant="dashboard" className="feature-hero-card">
         <div>
           <p className="section-label">Users</p>
           <h2 className="feature-hero-title">Manage player and admin accounts.</h2>
@@ -246,209 +295,129 @@ export default function AdminUsers() {
           <p className="feature-callout-label">Visible users</p>
           <p className="feature-callout-value">{users.length}</p>
         </div>
-      </section>
+      </Card>
 
-      <section className="dashboard-panel">
-        <div className="panel-header">
-          <div>
-            <p className="panel-kicker">Create User</p>
-            <h2 className="panel-title">Add an account</h2>
-          </div>
-        </div>
+      <PageSection title="Create User" description="Add an account.">
+        <Card as="form" variant="dashboard" onSubmit={handleCreateUserSubmit} className="admin-activity-filters">
+          <Field
+            label="Username"
+            name="username"
+            value={createUserValues.username}
+            onChange={handleCreateUserChange}
+            placeholder="New username"
+            disabled={isCreatingUser}
+            required
+          />
 
-        <form className="admin-activity-filters" onSubmit={handleCreateUserSubmit}>
-          <label className="form-field">
-            Username
-            <input
-              name="username"
-              value={createUserValues.username}
-              onChange={handleCreateUserChange}
-              placeholder="New username"
-              disabled={isCreatingUser}
-              required
-            />
-          </label>
+          <Field
+            label="Email"
+            type="email"
+            name="email"
+            value={createUserValues.email}
+            onChange={handleCreateUserChange}
+            placeholder="player@example.com"
+            disabled={isCreatingUser}
+            required
+          />
 
-          <label className="form-field">
-            Email
-            <input
-              type="email"
-              name="email"
-              value={createUserValues.email}
-              onChange={handleCreateUserChange}
-              placeholder="player@example.com"
-              disabled={isCreatingUser}
-              required
-            />
-          </label>
+          <Field control={Select} id="create-user-role" label="Role" name="role" value={createUserValues.role} onChange={handleCreateUserChange} disabled={isCreatingUser}>
+            {USER_ROLE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </Field>
 
-          <label className="form-field">
-            Role
-            <select name="role" value={createUserValues.role} onChange={handleCreateUserChange} disabled={isCreatingUser}>
-              <option value="player">Player</option>
-              <option value="payment_officer">Payment Officer</option>
-              <option value="super_admin">Super Admin</option>
-            </select>
-          </label>
-
-          <Button
-            className="auth-button"
-            type="submit"
-            isLoading={isCreatingUser}
-            loadingText="Saving..."
-          >
+          <Button type="submit" isLoading={isCreatingUser} loadingText="Saving...">
             Create User
           </Button>
-        </form>
-      </section>
+        </Card>
+      </PageSection>
 
-      <section className="dashboard-panel">
-        <div className="admin-toolbar admin-user-filters">
-          <label className="form-field">
-            Search users
-            <input
-              type="text"
-              name="search"
-              value={filters.search}
-              onChange={handleFilterChange}
-              placeholder="Search by username or email"
-            />
-          </label>
+      <PageSection title="All users" description="Search, filter, and manage every account.">
+        <Card variant="dashboard" className="admin-toolbar admin-user-filters">
+          <Field
+            label="Search users"
+            type="text"
+            name="search"
+            value={filters.search}
+            onChange={handleFilterChange}
+            placeholder="Search by username or email"
+          />
 
-          <label className="form-field">
-            Role
-            <select name="role" value={filters.role} onChange={handleFilterChange}>
-              <option value="all">All roles</option>
-              <option value="player">Players</option>
-              <option value="payment_officer">Payment Officers</option>
-              <option value="super_admin">Super Admins</option>
-              <option value="admin">Legacy Admins</option>
-            </select>
-          </label>
+          <Field control={Select} id="filter-role" label="Role" name="role" value={filters.role} onChange={handleFilterChange}>
+            <option value="all">All roles</option>
+            <option value="player">Players</option>
+            <option value="payment_officer">Payment Officers</option>
+            <option value="super_admin">Super Admins</option>
+            <option value="admin">Legacy Admins</option>
+          </Field>
 
-          <label className="form-field">
-            Status
-            <select name="status" value={filters.status} onChange={handleFilterChange}>
-              <option value="all">All statuses</option>
-              <option value="active">Active</option>
-              <option value="suspended">Suspended</option>
-              <option value="banned">Banned</option>
-              <option value="disabled">Disabled</option>
-              <option value="deleted">Deleted</option>
-            </select>
-          </label>
-        </div>
+          <Field control={Select} label="Status" name="status" value={filters.status} onChange={handleFilterChange}>
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="suspended">Suspended</option>
+            <option value="banned">Banned</option>
+            <option value="disabled">Disabled</option>
+            <option value="deleted">Deleted</option>
+          </Field>
+        </Card>
 
         <SuccessAlert message={feedback.type === "success" ? feedback.message : ""} />
         <ErrorState message={feedback.type === "error" ? feedback.message : ""} onRetry={() => loadUsers(filters)} />
 
         {generatedPassword ? (
-          <div className="admin-generated-password-card">
+          <Card variant="dashboard" className="admin-generated-password-card">
             <p className="panel-kicker">Temporary Password</p>
             <h3 className="panel-title">Reset created for {generatedPassword.username}</h3>
             <p className="section-copy">
               Share this temporary password securely. The user can sign in with it immediately.
             </p>
             <code className="admin-generated-password-value">{generatedPassword.temporaryPassword}</code>
-          </div>
+          </Card>
         ) : null}
 
-        {isLoading ? (
-          <SectionLoader as="div" lines={8} message="Loading users..." className="" />
-        ) : users.length ? (
-          <div className="admin-users-table">
-            <div className="admin-users-table-header">
-              <span>Username</span>
-              <span>Email</span>
-              <span>Role</span>
-              <span>Status</span>
-              <span>Last login</span>
-              <span>Actions</span>
+        <DataTable
+          columns={columns}
+          rows={users}
+          isLoading={isLoading}
+          caption="Admin-managed player and admin accounts"
+          emptyTitle={hasActiveFilters ? "No matching users" : "No users found"}
+          emptyDescription={hasActiveFilters ? "No matching filters." : "No users found."}
+          actionsLabel="Actions"
+          renderActions={(user) => (
+            <div className="admin-users-actions">
+              <Select
+                aria-label={`Change role for ${user.username}`}
+                value={user.role}
+                disabled={activeActionKey === `${user.id}:role`}
+                onChange={(event) => handleRoleSelection(user, event.target.value)}
+              >
+                {USER_ROLE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                {user.role === "admin" ? <option value="admin">Legacy Admin</option> : null}
+              </Select>
+
+              <Select
+                aria-label={`Change status for ${user.username}`}
+                value={user.status}
+                disabled={activeActionKey === `${user.id}:status`}
+                onChange={(event) => handleStatusSelection(user, event.target.value)}
+              >
+                <option value="active">Active / Restore</option>
+                <option value="suspended">Suspended</option>
+                <option value="banned">Banned</option>
+                <option value="disabled">Disabled</option>
+                <option value="deleted">Soft deleted</option>
+              </Select>
+
+              <Button
+                size="sm"
+                isLoading={activeActionKey === `${user.id}:password`}
+                loadingText="Resetting..."
+                onClick={() => handlePasswordReset(user)}
+              >
+                Reset password
+              </Button>
             </div>
-
-            <div className="admin-users-table-body">
-              {users.map((user) => (
-                <article key={user.id} className="admin-users-row">
-                  <div className="admin-users-cell">
-                    <PlayerIdentity
-                      player={user}
-                      variant="admin"
-                      showUsername={false}
-                      showBadges={false}
-                      showPrivateMeta={false}
-                    />
-                    <p className="admin-users-secondary">Created {formatDate(user.created_at)}</p>
-                  </div>
-
-                  <div className="admin-users-cell">
-                    <p className="admin-users-primary">{user.email}</p>
-                  </div>
-
-                  <div className="admin-users-cell">
-                    <span className={`match-status-badge ${user.role === "admin" ? "match-status-pending" : "match-status-confirmed"}`}>
-                      {user.role}
-                    </span>
-                  </div>
-
-                  <div className="admin-users-cell">
-                    <span className={`match-status-badge ${user.status === "active" ? "match-status-confirmed" : "match-status-rejected"}`}>
-                      {user.status}
-                    </span>
-                  </div>
-
-                  <div className="admin-users-cell">
-                    <p className="admin-users-primary">{formatDate(user.last_login_at)}</p>
-                  </div>
-
-                  <div className="admin-users-cell admin-users-actions">
-                    <label className="form-field admin-users-action-field">
-                      <span className="sr-only">Change role for {user.username}</span>
-                      <select
-                        value={user.role}
-                        disabled={activeActionKey === `${user.id}:role`}
-                        onChange={(event) => handleRoleSelection(user, event.target.value)}
-                      >
-                        <option value="player">Player</option>
-                        <option value="payment_officer">Payment Officer</option>
-                        <option value="super_admin">Super Admin</option>
-                        {user.role === "admin" ? <option value="admin">Legacy Admin</option> : null}
-                      </select>
-                    </label>
-
-                    <label className="form-field admin-users-action-field">
-                      <span className="sr-only">Change status for {user.username}</span>
-                      <select
-                        value={user.status}
-                        disabled={activeActionKey === `${user.id}:status`}
-                        onChange={(event) => handleStatusSelection(user, event.target.value)}
-                      >
-                        <option value="active">Active / Restore</option>
-                        <option value="suspended">Suspended</option>
-                        <option value="banned">Banned</option>
-                        <option value="disabled">Disabled</option>
-                        <option value="deleted">Soft deleted</option>
-                      </select>
-                    </label>
-
-                    <Button
-                      className="auth-button admin-reset-password-button"
-                      isLoading={activeActionKey === `${user.id}:password`}
-                      loadingText="Resetting..."
-                      onClick={() => handlePasswordReset(user)}
-                    >
-                      Reset password
-                    </Button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="match-empty-state">
-            <p className="empty-state-copy">{hasActiveFilters ? "No matching filters." : "No users found."}</p>
-          </div>
-        )}
-      </section>
+          )}
+        />
+      </PageSection>
 
       <Modal
         isOpen={confirmationState.isOpen}

@@ -9,7 +9,6 @@ import {
   PlayerHighlightGrid,
 } from "../components/EngagementCards";
 import {
-  PerformanceInsights,
   PlayerGoalCard,
   RecentForm,
   RivalryCard,
@@ -44,7 +43,6 @@ import {
   normalizeEngagementNotifications,
 } from "../components/engagementViewModel";
 import {
-  buildPerformanceInsights,
   calculateHeadToHead,
   getNextCompetitiveGoal,
   getPendingPlayerActions,
@@ -248,10 +246,6 @@ export default function Dashboard() {
     () => getRecentForm(summary.current_form.length ? summary.current_form : summary.recent_summary, 5),
     [summary.current_form, summary.recent_summary]
   );
-  const insights = useMemo(
-    () => buildPerformanceInsights({ matches: summary.recent_summary, summary, actionSummary: actionCenter.summary }),
-    [actionCenter.summary, summary]
-  );
   const goal = useMemo(
     () => getNextCompetitiveGoal({ summary, ranking: ranking.player, actions: pendingActions }),
     [pendingActions, ranking.player, summary]
@@ -431,12 +425,6 @@ export default function Dashboard() {
           )}
         </PageSection>
       </div>
-
-      {insights.length ? (
-        <PageSection title="Performance Insights" description="Deterministic observations from your confirmed record and pending actions.">
-          <PerformanceInsights insights={insights} />
-        </PageSection>
-      ) : null}
 
       {rivalry ? (
         <PageSection title="Rivalry" description="Your most-played opponent across at least three confirmed matches.">
@@ -695,9 +683,7 @@ function getWelcomeMessage({ isLoading, error, actionCount }) {
     return "Some dashboard details could not be loaded. You can retry below.";
   }
   if (actionCount) {
-    return `You have ${actionCount} match ${
-      actionCount === 1 ? "item" : "items"
-    } waiting for attention.`;
+    return "Review your match actions below to keep things moving.";
   }
   return "Your competitive record is up to date. You can start your next match when ready.";
 }

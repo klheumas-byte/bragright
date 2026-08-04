@@ -2,6 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../layouts/DashboardLayout";
 import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  PageSection,
+  Select,
+  Textarea,
+} from "../components/ui";
+import {
   getPaymentDashboard,
   getPaymentSettings,
   getPayments,
@@ -93,21 +104,46 @@ export default function PaymentOperations({ view = "dashboard" }) {
       description={isSuperAdmin ? "Oversee collections, remittances, and monthly player access." : "Record player payments and reconcile collections."}
       showBackButton={false}
     >
-      <section className="financial-toolbar dashboard-panel">
-        <label>Billing month<input className="ui-input" type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
-        <label>Player search<input className="ui-input" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name or email" /></label>
-        <label>Subscription<select className="ui-select" value={subscriptionFilter} onChange={(event) => setSubscriptionFilter(event.target.value)}><option value="all">All</option><option value="active">Paid</option><option value="payment_due">Payment due</option><option value="grace_period">Grace period</option><option value="restricted">Restricted</option><option value="exempted">Exempted</option></select></label>
-        <label>Payment method<select className="ui-select" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)}><option value="all">All</option>{["cash", "mobile_money", "bank_deposit", "bank_transfer", "other"].map((value) => <option key={value} value={value}>{formatStatus(value)}</option>)}</select></label>
-        <label>Payment status<select className="ui-select" value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value)}><option value="all">All</option>{["pending_verification", "recorded", "verified", "reversed", "rejected"].map((value) => <option key={value} value={value}>{formatStatus(value)}</option>)}</select></label>
-        {isSuperAdmin ? <label>Officer<select className="ui-select" value={officerFilter} onChange={(event) => setOfficerFilter(event.target.value)}><option value="all">All officers</option>{(dashboard.officers || []).map((officer) => <option key={officer.officer_id} value={officer.officer_id}>{officer.officer}</option>)}</select></label> : null}
-        <span className="ui-badge ui-badge--neutral">{isSuperAdmin ? "Super Admin oversight" : "Private officer ledger"}</span>
-      </section>
+      <PageSection
+        title="Filters"
+        description="Scope collections and records to a billing month, player, or method."
+        actions={<Badge tone="neutral">{isSuperAdmin ? "Super Admin oversight" : "Private officer ledger"}</Badge>}
+      >
+        <Card variant="dashboard" className="financial-toolbar">
+          <Field type="month" label="Billing month" value={month} onChange={(event) => setMonth(event.target.value)} />
+          <Field type="search" label="Player search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name or email" />
+          <Field control={Select} label="Subscription" value={subscriptionFilter} onChange={(event) => setSubscriptionFilter(event.target.value)}>
+            <option value="all">All</option>
+            <option value="active">Paid</option>
+            <option value="payment_due">Payment due</option>
+            <option value="grace_period">Grace period</option>
+            <option value="restricted">Restricted</option>
+            <option value="exempted">Exempted</option>
+          </Field>
+          <Field control={Select} label="Payment method" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)}>
+            <option value="all">All</option>
+            {["cash", "mobile_money", "bank_deposit", "bank_transfer", "other"].map((value) => <option key={value} value={value}>{formatStatus(value)}</option>)}
+          </Field>
+          <Field control={Select} label="Payment status" value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value)}>
+            <option value="all">All</option>
+            {["pending_verification", "recorded", "verified", "reversed", "rejected"].map((value) => <option key={value} value={value}>{formatStatus(value)}</option>)}
+          </Field>
+          {isSuperAdmin ? (
+            <Field control={Select} label="Officer" value={officerFilter} onChange={(event) => setOfficerFilter(event.target.value)}>
+              <option value="all">All officers</option>
+              {(dashboard.officers || []).map((officer) => <option key={officer.officer_id} value={officer.officer_id}>{officer.officer}</option>)}
+            </Field>
+          ) : null}
+        </Card>
+      </PageSection>
 
       {feedback.message ? (
-        <div className={`ui-alert ui-alert--${feedback.type === "error" ? "danger" : "success"}`} role="status">
-          <span>{feedback.message}</span>
-          {feedback.type === "error" ? <button className="ui-button ui-button--secondary" type="button" onClick={load}>Retry</button> : null}
-        </div>
+        <Alert
+          tone={feedback.type === "error" ? "error" : "success"}
+          action={feedback.type === "error" ? <Button variant="secondary" size="sm" onClick={load}>Retry</Button> : null}
+        >
+          {feedback.message}
+        </Alert>
       ) : null}
 
       {view === "record" ? (
@@ -170,11 +206,16 @@ function FinancialSummary({ dashboard, isSuperAdmin, loading }) {
         ["Outstanding", dashboard.outstanding_balance],
       ];
   return (
-    <section className="financial-summary-grid" aria-busy={loading}>
-      {metrics.map(([label, value, monetary = true]) => (
-        <article className="admin-summary-card" key={label}><p className="panel-kicker">{label}</p><strong className="admin-summary-value">{monetary ? formatMoney(value) : value ?? 0}</strong></article>
-      ))}
-    </section>
+    <PageSection title="Financial summary" description="Authoritative totals for the selected billing month.">
+      <section className="financial-summary-grid" aria-busy={loading}>
+        {metrics.map(([label, value, monetary = true]) => (
+          <Card as="article" variant="dashboard" className="admin-summary-card" key={label}>
+            <p className="panel-kicker">{label}</p>
+            <strong className="admin-summary-value">{monetary ? formatMoney(value) : value ?? 0}</strong>
+          </Card>
+        ))}
+      </section>
+    </PageSection>
   );
 }
 
@@ -225,19 +266,32 @@ function RecordPaymentForm({ players, month, settings, onSaved, onError }) {
   }
 
   return (
-    <form className="dashboard-panel financial-form" onSubmit={submit}>
-      <div className="panel-header"><div><p className="panel-kicker">Authorized entry</p><h2 className="panel-title">Record a monthly payment</h2></div></div>
-      <div className="financial-form-grid">
-        <label>Player<select className="ui-select" name="player_id" value={form.player_id} onChange={update} required><option value="">Select player</option>{players.map((player) => <option key={player.id} value={player.id}>{player.username} · {formatStatus(player.subscription_status)}</option>)}</select></label>
-        <label>Amount ({settings?.currency || "GHS"})<input className="ui-input" name="amount" type="number" min="0.01" step="0.01" value={form.amount} onChange={update} required /></label>
-        <label>Method<select className="ui-select" name="payment_method" value={form.payment_method} onChange={update}>{["cash", "mobile_money", "bank_deposit", "bank_transfer", "other"].map((value) => <option key={value} value={value}>{formatStatus(value)}</option>)}</select></label>
-        <label>Payment date<input className="ui-input" name="payment_date" type="date" value={form.payment_date} onChange={update} required /></label>
-        <label>Receipt reference<input className="ui-input" name="reference" value={form.reference} onChange={update} maxLength="100" required={form.payment_method !== "cash"} /></label>
-        <label>Proof attachment<input className="ui-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={uploadProof} />{uploading ? <small>Uploading securely…</small> : form.proof ? <small>Proof attached</small> : null}{proofPreview ? <img className="financial-proof-preview" src={proofPreview} alt="Selected payment proof preview" /> : null}</label>
-      </div>
-      <label>Optional note<textarea className="ui-textarea" name="note" value={form.note} onChange={update} maxLength="500" /></label>
-      <button className="ui-button ui-button--primary" type="submit" disabled={saving}>{saving ? "Recording…" : "Review and record payment"}</button>
-    </form>
+    <PageSection title="Record a monthly payment" description="Authorized entry.">
+      <Card as="form" variant="dashboard" className="financial-form" onSubmit={submit}>
+        <div className="financial-form-grid">
+          <Field control={Select} label="Player" name="player_id" value={form.player_id} onChange={update} required>
+            <option value="">Select player</option>
+            {players.map((player) => <option key={player.id} value={player.id}>{player.username} · {formatStatus(player.subscription_status)}</option>)}
+          </Field>
+          <Field label={`Amount (${settings?.currency || "GHS"})`} name="amount" type="number" min="0.01" step="0.01" value={form.amount} onChange={update} required />
+          <Field control={Select} label="Method" name="payment_method" value={form.payment_method} onChange={update}>
+            {["cash", "mobile_money", "bank_deposit", "bank_transfer", "other"].map((value) => <option key={value} value={value}>{formatStatus(value)}</option>)}
+          </Field>
+          <Field label="Payment date" name="payment_date" type="date" value={form.payment_date} onChange={update} required />
+          <Field label="Receipt reference" name="reference" value={form.reference} onChange={update} maxLength="100" required={form.payment_method !== "cash"} />
+          <Field
+            label="Proof attachment"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={uploadProof}
+            description={uploading ? "Uploading securely…" : form.proof ? "Proof attached" : undefined}
+          />
+          {proofPreview ? <img className="financial-proof-preview" src={proofPreview} alt="Selected payment proof preview" /> : null}
+        </div>
+        <Field control={Textarea} label="Optional note" name="note" value={form.note} onChange={update} maxLength="500" />
+        <Button type="submit" isLoading={saving} loadingText="Recording…">Review and record payment</Button>
+      </Card>
+    </PageSection>
   );
 }
 
@@ -265,38 +319,47 @@ function PaymentLedger({ payments, players, isSuperAdmin, onSaved }) {
     await onSaved("Player payment submission rejected. The record was preserved.");
   }
   return (
-    <section className="dashboard-panel">
-      <div className="panel-header"><div><p className="panel-kicker">Authoritative records</p><h2 className="panel-title">Payment ledger</h2></div></div>
-      <div className="financial-card-list">
-        {payments.length ? payments.map((payment) => (
-          <article className="financial-record-card" key={payment.id}>
-            <div><strong>{names[payment.player_id] || "Player"}</strong><span>{formatMoney(payment.amount, payment.currency)} · {formatStatus(payment.payment_method)}</span></div>
-            <span className={`ui-badge ui-badge--${payment.status === "reversed" ? "danger" : "success"}`}>{formatStatus(payment.status)}</span>
-            <small>{payment.reference || "Cash"} · {formatDate(payment.payment_date)}</small>
-            {canReviewSubmission && payment.source === "player_submission" && payment.status === "pending_verification" ? (
-              <div className="financial-actions">
-                <label>
-                  Rejection reason
-                  <input className="ui-input" value={reasons[payment.id] || ""} onChange={(event) => setReasons((current) => ({ ...current, [payment.id]: event.target.value }))} maxLength="500" />
-                </label>
-                <button className="ui-button ui-button--success" onClick={() => verify(payment)}>Verify submission</button>
-                <button className="ui-button ui-button--danger" disabled={!String(reasons[payment.id] || "").trim()} onClick={() => reject(payment)}>Reject</button>
-              </div>
-            ) : null}
-            {isSuperAdmin && ["recorded", "verified"].includes(payment.status) ? (
-              <div className="financial-actions">
-                {payment.status === "recorded" ? <button className="ui-button ui-button--success" onClick={() => verify(payment)}>Verify payment</button> : null}
-                <label>
-                  Reversal reason
-                  <input className="ui-input" value={reasons[payment.id] || ""} onChange={(event) => setReasons((current) => ({ ...current, [payment.id]: event.target.value }))} maxLength="500" />
-                </label>
-                <button className="ui-button ui-button--danger" disabled={!String(reasons[payment.id] || "").trim()} onClick={() => reverse(payment)}>Reverse payment</button>
-              </div>
-            ) : null}
-          </article>
-        )) : <p className="empty-state-copy">No payment records for this period.</p>}
-      </div>
-    </section>
+    <PageSection title="Payment ledger" description="Authoritative records.">
+      {payments.length ? (
+        <div className="financial-card-list">
+          {payments.map((payment) => (
+            <Card as="article" variant="dashboard" className="financial-record-card" key={payment.id}>
+              <div><strong>{names[payment.player_id] || "Player"}</strong><span>{formatMoney(payment.amount, payment.currency)} · {formatStatus(payment.payment_method)}</span></div>
+              <Badge tone={payment.status === "reversed" ? "danger" : "success"}>{formatStatus(payment.status)}</Badge>
+              <small>{payment.reference || "Cash"} · {formatDate(payment.payment_date)}</small>
+              {canReviewSubmission && payment.source === "player_submission" && payment.status === "pending_verification" ? (
+                <div className="financial-actions">
+                  <Field
+                    label="Rejection reason"
+                    value={reasons[payment.id] || ""}
+                    onChange={(event) => setReasons((current) => ({ ...current, [payment.id]: event.target.value }))}
+                    maxLength="500"
+                  />
+                  <Button variant="success" size="sm" onClick={() => verify(payment)}>Verify submission</Button>
+                  <Button variant="danger" size="sm" disabled={!String(reasons[payment.id] || "").trim()} onClick={() => reject(payment)}>Reject</Button>
+                </div>
+              ) : null}
+              {isSuperAdmin && ["recorded", "verified"].includes(payment.status) ? (
+                <div className="financial-actions">
+                  {payment.status === "recorded" ? <Button variant="success" size="sm" onClick={() => verify(payment)}>Verify payment</Button> : null}
+                  <Field
+                    label="Reversal reason"
+                    value={reasons[payment.id] || ""}
+                    onChange={(event) => setReasons((current) => ({ ...current, [payment.id]: event.target.value }))}
+                    maxLength="500"
+                  />
+                  <Button variant="danger" size="sm" disabled={!String(reasons[payment.id] || "").trim()} onClick={() => reverse(payment)}>Reverse payment</Button>
+                </div>
+              ) : null}
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Card variant="empty">
+          <EmptyState title="No payment records" description="No payment records for this period." />
+        </Card>
+      )}
+    </PageSection>
   );
 }
 
@@ -309,15 +372,19 @@ function ExemptionForm({ players, month, onSaved }) {
     await onSaved("Subscription exemption granted without creating a payment.");
   }
   return (
-    <form className="dashboard-panel financial-form" onSubmit={submit}>
-      <div className="panel-header"><div><p className="panel-kicker">Super Admin only</p><h2 className="panel-title">Grant exemption</h2></div></div>
-      <div className="financial-form-grid">
-        <label>Player<select className="ui-select" value={form.player_id} onChange={(event) => setForm((current) => ({ ...current, player_id: event.target.value }))} required><option value="">Select player</option>{players.map((player) => <option key={player.id} value={player.id}>{player.username}</option>)}</select></label>
-        <label>Reason<input className="ui-input" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} maxLength="300" required /></label>
-      </div>
-      <label>Note<textarea className="ui-textarea" value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} maxLength="500" /></label>
-      <button className="ui-button ui-button--premium" type="submit">Grant exemption</button>
-    </form>
+    <PageSection title="Grant exemption" description="Super Admin only.">
+      <Card as="form" variant="dashboard" className="financial-form" onSubmit={submit}>
+        <div className="financial-form-grid">
+          <Field control={Select} label="Player" value={form.player_id} onChange={(event) => setForm((current) => ({ ...current, player_id: event.target.value }))} required>
+            <option value="">Select player</option>
+            {players.map((player) => <option key={player.id} value={player.id}>{player.username}</option>)}
+          </Field>
+          <Field label="Reason" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} maxLength="300" required />
+        </div>
+        <Field control={Textarea} label="Note" value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} maxLength="500" />
+        <Button type="submit" variant="premium">Grant exemption</Button>
+      </Card>
+    </PageSection>
   );
 }
 
@@ -329,14 +396,15 @@ function BillingControls({ month, onSaved }) {
     await onSaved(dryRun ? "Billing preview completed without changes." : "Monthly billing completed safely.");
   }
   return (
-    <section className="dashboard-panel">
-      <div className="panel-header"><div><p className="panel-kicker">Idempotent process</p><h2 className="panel-title">Monthly billing</h2></div></div>
-      <div className="financial-actions">
-        <button className="ui-button ui-button--secondary" onClick={() => execute(true)}>Preview dry run</button>
-        <button className="ui-button ui-button--primary" onClick={() => execute(false)}>Run billing for {month}</button>
-      </div>
-      {summary ? <p className="section-copy">{summary.players_inspected} players inspected · {summary.subscriptions_created} subscriptions created · {summary.accounts_restricted} restricted</p> : null}
-    </section>
+    <PageSection title="Monthly billing" description="Idempotent process.">
+      <Card variant="dashboard">
+        <div className="financial-actions">
+          <Button variant="secondary" onClick={() => execute(true)}>Preview dry run</Button>
+          <Button variant="primary" onClick={() => execute(false)}>Run billing for {month}</Button>
+        </div>
+        {summary ? <p className="section-copy">{summary.players_inspected} players inspected · {summary.subscriptions_created} subscriptions created · {summary.accounts_restricted} restricted</p> : null}
+      </Card>
+    </PageSection>
   );
 }
 
@@ -372,63 +440,71 @@ function RemittancePanel({ dashboard, items, month, isSuperAdmin, onSaved }) {
   }
 
   return (
-    <section className="dashboard-panel">
-      <div className="panel-header"><div><p className="panel-kicker">Reconciliation</p><h2 className="panel-title">{isSuperAdmin ? "Remittance review" : "Remit collections"}</h2></div></div>
+    <PageSection title={isSuperAdmin ? "Remittance review" : "Remit collections"} description="Reconciliation.">
       {!isSuperAdmin ? (
-        <form className="financial-form-grid" onSubmit={submit}>
-          <label>Amount available: {formatMoney(dashboard.available_to_remit)}<input className="ui-input" name="amount" type="number" min="0.01" step="0.01" value={form.amount} onChange={update} required /></label>
-          <label>Method<select className="ui-select" name="method" value={form.method} onChange={update}>{["mobile_money", "bank_deposit", "bank_transfer"].map((value) => <option key={value} value={value}>{formatStatus(value)}</option>)}</select></label>
-          <label>Destination<input className="ui-input" name="destination" value={form.destination} onChange={update} required /></label>
-          <label>Reference<input className="ui-input" name="reference" value={form.reference} onChange={update} required /></label>
-          <label>Date<input className="ui-input" name="remittance_date" type="date" value={form.remittance_date} onChange={update} required /></label>
-          <label>Proof attachment<input className="ui-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={uploadProof} />{form.proof ? <small>Proof attached</small> : null}{proofPreview ? <img className="financial-proof-preview" src={proofPreview} alt="Selected remittance proof preview" /> : null}</label>
-          <button className="ui-button ui-button--primary" type="submit">Submit for verification</button>
-        </form>
+        <Card as="form" variant="dashboard" className="financial-form-grid" onSubmit={submit}>
+          <Field label={`Amount available: ${formatMoney(dashboard.available_to_remit)}`} name="amount" type="number" min="0.01" step="0.01" value={form.amount} onChange={update} required />
+          <Field control={Select} label="Method" name="method" value={form.method} onChange={update}>
+            {["mobile_money", "bank_deposit", "bank_transfer"].map((value) => <option key={value} value={value}>{formatStatus(value)}</option>)}
+          </Field>
+          <Field label="Destination" name="destination" value={form.destination} onChange={update} required />
+          <Field label="Reference" name="reference" value={form.reference} onChange={update} required />
+          <Field label="Date" name="remittance_date" type="date" value={form.remittance_date} onChange={update} required />
+          <Field
+            label="Proof attachment"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={uploadProof}
+            description={form.proof ? "Proof attached" : undefined}
+          />
+          {proofPreview ? <img className="financial-proof-preview" src={proofPreview} alt="Selected remittance proof preview" /> : null}
+          <Button type="submit">Submit for verification</Button>
+        </Card>
       ) : null}
-      <div className="financial-card-list">
-        {items.length ? items.map((item) => (
-          <article className="financial-record-card" key={item.id}>
-            <div>
-              <strong>{formatMoney(item.amount, item.currency)}</strong>
-              <span>{item.officer?.name ? `${item.officer.name} · ` : ""}{formatStatus(item.method)} · {item.destination}</span>
-              {item.officer_ledger ? <small>Collected {formatMoney(item.officer_ledger.total_collected)} · previously remitted {formatMoney(item.officer_ledger.total_remitted)} · current balance {formatMoney(item.officer_ledger.outstanding_balance)}</small> : null}
-            </div>
-            <span className={`ui-badge ui-badge--${item.status === "verified" ? "success" : item.status === "rejected" ? "danger" : "warning"}`}>{formatStatus(item.status)}</span>
-            <small>{item.reference} · {formatDate(item.submitted_at)}</small>
-            {isSuperAdmin && item.status === "pending_verification" ? (
-              <div className="financial-actions">
-                <label>
-                  Rejection reason
-                  <input
-                    className="ui-input"
+      {items.length ? (
+        <div className="financial-card-list">
+          {items.map((item) => (
+            <Card as="article" variant="dashboard" className="financial-record-card" key={item.id}>
+              <div>
+                <strong>{formatMoney(item.amount, item.currency)}</strong>
+                <span>{item.officer?.name ? `${item.officer.name} · ` : ""}{formatStatus(item.method)} · {item.destination}</span>
+                {item.officer_ledger ? <small>Collected {formatMoney(item.officer_ledger.total_collected)} · previously remitted {formatMoney(item.officer_ledger.total_remitted)} · current balance {formatMoney(item.officer_ledger.outstanding_balance)}</small> : null}
+              </div>
+              <Badge tone={item.status === "verified" ? "success" : item.status === "rejected" ? "danger" : "warning"}>{formatStatus(item.status)}</Badge>
+              <small>{item.reference} · {formatDate(item.submitted_at)}</small>
+              {isSuperAdmin && item.status === "pending_verification" ? (
+                <div className="financial-actions">
+                  <Field
+                    label="Rejection reason"
                     value={reviewReasons[item.id] || ""}
                     onChange={(event) => setReviewReasons((current) => ({ ...current, [item.id]: event.target.value }))}
                     placeholder="Required only when rejecting"
                     maxLength="500"
                   />
-                </label>
-                <button className="ui-button ui-button--success" onClick={() => review(item, "verify")}>Verify</button>
-                <button className="ui-button ui-button--danger" disabled={!String(reviewReasons[item.id] || "").trim()} onClick={() => review(item, "reject")}>Reject</button>
-              </div>
-            ) : null}
-            {isSuperAdmin && item.status === "verified" ? (
-              <div className="financial-actions">
-                <label>
-                  Reversal reason
-                  <input
-                    className="ui-input"
+                  <Button variant="success" size="sm" onClick={() => review(item, "verify")}>Verify</Button>
+                  <Button variant="danger" size="sm" disabled={!String(reviewReasons[item.id] || "").trim()} onClick={() => review(item, "reject")}>Reject</Button>
+                </div>
+              ) : null}
+              {isSuperAdmin && item.status === "verified" ? (
+                <div className="financial-actions">
+                  <Field
+                    label="Reversal reason"
                     value={reviewReasons[item.id] || ""}
                     onChange={(event) => setReviewReasons((current) => ({ ...current, [item.id]: event.target.value }))}
                     maxLength="500"
                   />
-                </label>
-                <button className="ui-button ui-button--danger" disabled={!String(reviewReasons[item.id] || "").trim()} onClick={() => review(item, "reverse")}>Reverse verified remittance</button>
-              </div>
-            ) : null}
-          </article>
-        )) : <p className="empty-state-copy">No remittances found.</p>}
-      </div>
-    </section>
+                  <Button variant="danger" size="sm" disabled={!String(reviewReasons[item.id] || "").trim()} onClick={() => review(item, "reverse")}>Reverse verified remittance</Button>
+                </div>
+              ) : null}
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Card variant="empty">
+          <EmptyState title="No remittances" description="No remittances found." />
+        </Card>
+      )}
+    </PageSection>
   );
 }
 

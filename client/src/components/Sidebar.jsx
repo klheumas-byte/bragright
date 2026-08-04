@@ -139,6 +139,7 @@ function Sidebar({
   return (
     <aside
       ref={sidebarRef}
+      id={isMobileView ? "dashboard-sidebar-sheet" : undefined}
       className={[
         "dashboard-sidebar",
         isOpen ? "dashboard-sidebar-open" : "",

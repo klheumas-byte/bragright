@@ -21,7 +21,7 @@ test("the last-loaded stylesheet owns the approved dark and light visibility tok
     ["border-strong", "#3B5F7E", "#9FB4C6"],
     ["text-primary", "#F4F7FB", "#10243A"],
     ["text-secondary", "#B7C6D5", "#40566B"],
-    ["primary", "#2DD4BF", "#0F8F83"],
+    ["primary", "#8D5CF6", "#0F8F83"],
   ]) {
     assert.match(premium, new RegExp(`--${token}: ${dark}`));
     assert.match(premium, new RegExp(`html\\[data-theme="light"\\][\\s\\S]*--${token}: ${light}`));

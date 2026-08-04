@@ -26,7 +26,7 @@ const main = readFileSync(new URL("main.jsx", root), "utf8");
 test("dark and light Turquoise Arena tokens match the approved palette", () => {
   assert.match(tokens, /--app-background:\s*#0e1a24/);
   assert.match(tokens, /--surface-primary:\s*#162631/);
-  assert.match(tokens, /--accent-primary:\s*#18d5c3/);
+  assert.match(tokens, /--accent-primary:\s*#8d5cf6/);
   assert.match(tokens, /--accent-secondary:\s*#3b9eff/);
   assert.match(tokens, /--accent-orange:\s*#ff8a2a/);
   assert.match(tokens, /html\[data-theme="light"\][\s\S]*?--app-background:\s*#f2f7f7/);

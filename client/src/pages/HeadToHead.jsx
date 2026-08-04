@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import PlayerIdentity from "../components/PlayerIdentity";
 import RichMatchCard from "../components/RichMatchCard";
 import SectionSkeleton from "../components/SectionSkeleton";
-import { Button } from "../components/ui";
+import SidebarIcon from "../components/SidebarIcon";
+import StatCard from "../components/StatCard";
+import TrophyWatermark from "../components/TrophyWatermark";
+import { Alert, Button, Card, EmptyState, Field, PageSection } from "../components/ui";
 import { useLoading } from "../context/LoadingContext";
 import { usePlayerDirectory } from "../context/PlayerDirectoryContext";
 import DashboardLayout from "../layouts/DashboardLayout";
 import { getHeadToHead } from "../services/api";
+
+const MAX_PICKER_RESULTS = 12;
 
 const emptyComparison = {
   player_a: null,
@@ -39,6 +45,8 @@ export default function HeadToHead() {
     playerAId: playerAId || "",
     playerBId: playerBId || "",
   });
+  const [searchA, setSearchA] = useState("");
+  const [searchB, setSearchB] = useState("");
 
   useEffect(() => {
     setSelection({
@@ -76,13 +84,16 @@ export default function HeadToHead() {
     }
   }
 
-  function handleSelectionChange(event) {
-    const { name, value } = event.target;
+  function selectPlayerA(playerId) {
     setSelection((currentValue) => ({
       ...currentValue,
-      [name]: value,
-      ...(name === "playerAId" && currentValue.playerBId === value ? { playerBId: "" } : {}),
+      playerAId: playerId,
+      ...(currentValue.playerBId === playerId ? { playerBId: "" } : {}),
     }));
+  }
+
+  function selectPlayerB(playerId) {
+    setSelection((currentValue) => ({ ...currentValue, playerBId: playerId }));
   }
 
   function handleComparisonSubmit(event) {
@@ -103,18 +114,24 @@ export default function HeadToHead() {
       title: "Confirmed Meetings",
       value: comparison.total_matches,
       subtitle: "Only confirmed rivalry matches count toward this comparison.",
+      icon: "matches",
+      tone: "primary",
     },
     {
       id: "player-a-wins",
       title: comparison.player_a?.username || "Player A Wins",
       value: comparison.player_a_wins,
       subtitle: "Confirmed wins in this rivalry only.",
+      icon: "trophy",
+      tone: "success",
     },
     {
       id: "player-b-wins",
       title: comparison.player_b?.username || "Player B Wins",
       value: comparison.player_b_wins,
       subtitle: "Confirmed wins in this rivalry only.",
+      icon: "trophy",
+      tone: "secondary",
     },
     {
       id: "goal-difference",
@@ -125,6 +142,8 @@ export default function HeadToHead() {
           ? `${comparison.player_b.username} +${comparison.player_b_goal_difference}`
           : "Level",
       subtitle: `${comparison.draws} confirmed draw${comparison.draws === 1 ? "" : "s"}.`,
+      icon: "balance",
+      tone: "warning",
     },
   ];
 
@@ -133,7 +152,8 @@ export default function HeadToHead() {
       title="Head-to-Head"
       description="Compare rivals and settle the matchup with real records."
     >
-      <section className="feature-hero-card">
+      <Card as="section" variant="dashboard" className="feature-hero-card">
+        <TrophyWatermark />
         <div>
           <p className="section-label">Head-to-Head</p>
           <h2 className="feature-hero-title">Compare two players.</h2>
@@ -143,73 +163,55 @@ export default function HeadToHead() {
           <p className="feature-callout-label">Filter</p>
           <p className="feature-callout-value">Confirmed matches only</p>
         </div>
-      </section>
+      </Card>
 
-      <section className="dashboard-panel">
-        <div className="panel-header">
-          <div>
-            <p className="panel-kicker">Compare Players</p>
-            <h2 className="panel-title">Build a rivalry view</h2>
-          </div>
-        </div>
+      <PageSection title="Compare Players" description="Search and tap two players to build a rivalry view.">
+        <Card as="section" variant="dashboard" className="dashboard-panel">
+          <form onSubmit={handleComparisonSubmit}>
+            <div className="match-score-grid head-to-head-picker-grid">
+              <PlayerPickerColumn
+                label="Player A"
+                players={selectablePlayersForA}
+                selectedId={selection.playerAId}
+                search={searchA}
+                onSearchChange={setSearchA}
+                onSelect={selectPlayerA}
+                disabled={isLoadingPlayers}
+              />
+              <PlayerPickerColumn
+                label="Player B"
+                players={selectablePlayersForB}
+                selectedId={selection.playerBId}
+                search={searchB}
+                onSearchChange={setSearchB}
+                onSelect={selectPlayerB}
+                disabled={isLoadingPlayers}
+              />
+            </div>
 
-        <form className="head-to-head-selector" onSubmit={handleComparisonSubmit}>
-          <label className="form-field">
-            Player A
-            <select
-              name="playerAId"
-              value={selection.playerAId}
-              onChange={handleSelectionChange}
-              disabled={isLoadingPlayers}
+            <Button
+              type="submit"
+              className="head-to-head-submit-button"
+              disabled={isLoadingPlayers || !selection.playerAId || !selection.playerBId}
             >
-              <option value="">Select first player</option>
-              {selectablePlayersForA.map((player) => (
-                <option key={player.id} value={player.id}>
-                  {player.username}
-                </option>
-              ))}
-            </select>
-          </label>
+              View Rivalry
+            </Button>
+          </form>
 
-          <label className="form-field">
-            Player B
-            <select
-              name="playerBId"
-              value={selection.playerBId}
-              onChange={handleSelectionChange}
-              disabled={isLoadingPlayers}
-            >
-              <option value="">Select second player</option>
-              {selectablePlayersForB.map((player) => (
-                <option key={player.id} value={player.id}>
-                  {player.username}
-                </option>
-              ))}
-            </select>
-          </label>
+          {isLoadingPlayers ? <p className="match-helper-text">Loading available players...</p> : null}
+          {playersError ? <Alert tone="error">{playersError}</Alert> : null}
+        </Card>
+      </PageSection>
 
-          <Button type="submit" className="auth-button head-to-head-submit-button" disabled={isLoadingPlayers}>
-            View Rivalry
-          </Button>
-        </form>
-
-        {isLoadingPlayers ? <p className="match-helper-text">Loading available players...</p> : null}
-        {playersError ? <p className="match-helper-text error-text">{playersError}</p> : null}
-      </section>
-
-      {comparisonError ? (
-        <div className="match-feedback match-feedback-error">
-          <p>{comparisonError}</p>
-        </div>
-      ) : null}
+      {comparisonError ? <Alert tone="error">{comparisonError}</Alert> : null}
 
       {isLoadingComparison ? (
-        <section className="dashboard-panel">
+        <Card as="section" variant="dashboard" className="dashboard-panel">
           <SectionSkeleton lines={6} />
-        </section>
+        </Card>
       ) : comparison.player_a && comparison.player_b ? (
         <>
-          <section className="dashboard-panel">
+          <Card as="section" variant="dashboard" className="dashboard-panel">
             <div className="rivalry-overview">
               <article
                 className={`rivalry-player-card${comparison.leader === "player_a" ? " rivalry-player-card-leading" : ""}`}
@@ -240,29 +242,23 @@ export default function HeadToHead() {
                 <p className="rivalry-player-copy">{comparison.player_b_goals ?? comparison.player_b_points} goals in confirmed meetings.</p>
               </article>
             </div>
-          </section>
+          </Card>
 
-          <section className="stat-grid">
+          <section className="stat-grid" aria-label="Rivalry statistics">
             {rivalryStats.map((stat) => (
-              <article key={stat.id} className="stat-card stat-card-emphasis">
-                <div className="stat-card-header">
-                  <h2 className="stat-card-title">{stat.title}</h2>
-                  <div className="stat-card-icon">{String(stat.title).slice(0, 2).toUpperCase()}</div>
-                </div>
-                <p className="stat-card-value">{stat.value}</p>
-                <p className="stat-card-subtitle">{stat.subtitle}</p>
-              </article>
+              <StatCard
+                key={stat.id}
+                title={stat.title}
+                value={stat.value}
+                subtitle={stat.subtitle}
+                icon={stat.icon}
+                tone={stat.tone}
+                emphasis
+              />
             ))}
           </section>
 
-          <section className="dashboard-panel">
-            <div className="panel-header">
-              <div>
-                <p className="panel-kicker">Recent Rivalry Matches</p>
-                <h2 className="panel-title">Confirmed meetings between these two players</h2>
-              </div>
-            </div>
-
+          <PageSection title="Recent Rivalry Matches" description="Confirmed meetings between these two players.">
             {comparison.recent_matches.length ? (
               <div className="match-list">
                 {comparison.recent_matches.map((match) => (
@@ -282,20 +278,75 @@ export default function HeadToHead() {
                 ))}
               </div>
             ) : (
-              <div className="match-empty-state">
-                <p className="empty-state-copy">These two players do not have any confirmed head-to-head matches yet.</p>
-              </div>
+              <Card variant="empty">
+                <EmptyState
+                  title="No confirmed meetings yet"
+                  description="These two players do not have any confirmed head-to-head matches yet."
+                />
+              </Card>
             )}
-          </section>
+          </PageSection>
         </>
       ) : (
-        <section className="dashboard-panel">
-          <div className="match-empty-state">
-            <p className="empty-state-copy">Choose two players above to load a rivalry comparison.</p>
-          </div>
-        </section>
+        <Card as="section" variant="empty">
+          <EmptyState
+            title="Choose two players"
+            description="Choose two players above to load a rivalry comparison."
+          />
+        </Card>
       )}
     </DashboardLayout>
+  );
+}
+
+function PlayerPickerColumn({ label, players, selectedId, search, onSearchChange, onSelect, disabled }) {
+  const selected = players.find((player) => player.id === selectedId) || null;
+  const query = search.trim().toLowerCase();
+  const results = players
+    .filter((player) => !query || player.username.toLowerCase().includes(query))
+    .slice(0, MAX_PICKER_RESULTS);
+
+  return (
+    <div className="head-to-head-picker-column">
+      <Field
+        type="search"
+        label={label}
+        placeholder="Search players"
+        value={search}
+        disabled={disabled}
+        onChange={(event) => onSearchChange(event.target.value)}
+      />
+
+      {selected ? (
+        <Card variant="dashboard" className="selected-opponent-card" aria-live="polite">
+          <PlayerIdentity player={selected} variant="compact" label={`Selected ${label}`} className="selected-opponent-copy" />
+          <span className="selected-opponent-confirmation" aria-label={`${label} selected`}>
+            <SidebarIcon name="check" decorative />
+          </span>
+          <Button variant="ghost" size="sm" disabled={disabled} onClick={() => onSelect("")}>
+            Change
+          </Button>
+        </Card>
+      ) : results.length ? (
+        <div className="opponent-results" role="group" aria-label={`${label} candidates`}>
+          {results.map((player) => (
+            <button
+              key={player.id}
+              type="button"
+              className="opponent-option-card"
+              disabled={disabled}
+              onClick={() => onSelect(player.id)}
+            >
+              <PlayerIdentity player={player} variant="compact" className="opponent-option-copy" />
+            </button>
+          ))}
+        </div>
+      ) : (
+        <Card variant="empty">
+          <EmptyState title="No players found" description="Try another username." />
+        </Card>
+      )}
+    </div>
   );
 }
 

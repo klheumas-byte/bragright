@@ -12,6 +12,7 @@ import {
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import BackButton from "../components/BackButton";
 import DashboardHeader from "../components/DashboardHeader";
+import MobileBottomNav from "../components/MobileBottomNav";
 import MobileFastScroll from "../components/MobileFastScroll";
 import { RoutePageSkeleton } from "../components/LoadingSkeletons";
 import RouteErrorBoundary from "../components/RouteErrorBoundary";
@@ -177,10 +178,6 @@ export function DashboardShell() {
           identityMeta={identityMeta}
           avatarImage={avatarImage}
           onLogout={handleLogout}
-          onSidebarToggle={handleSidebarToggle}
-          isSidebarOpen={sidebarOpen}
-          isMobileView={isMobileView}
-          sidebarButtonRef={sidebarToggleRef}
         />
         <div className="dashboard-content">
           {showBackButton ? (
@@ -201,6 +198,13 @@ export function DashboardShell() {
           </RouteErrorBoundary>
         </div>
       </main>
+      {isMobileView ? (
+        <MobileBottomNav
+          isMoreOpen={sidebarOpen}
+          onMoreClick={handleSidebarToggle}
+          moreButtonRef={sidebarToggleRef}
+        />
+      ) : null}
       {isMobileView ? <MobileFastScroll /> : null}
     </div>
   );

@@ -41,6 +41,7 @@ export default function PlayerIdentity({
       <ProfileAvatar
         image={identity.avatar}
         name={identity.displayName}
+        seed={identity.id}
         size={AVATAR_SIZE_BY_VARIANT[variant] || "md"}
         isCurrent={identity.isCurrent}
         isWinner={identity.isWinner}

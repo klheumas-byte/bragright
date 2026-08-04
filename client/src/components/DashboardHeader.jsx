@@ -13,10 +13,6 @@ export default function DashboardHeader({
   identityMeta,
   avatarImage = "",
   onLogout,
-  onSidebarToggle,
-  isSidebarOpen,
-  isMobileView,
-  sidebarButtonRef,
 }) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
@@ -43,28 +39,9 @@ export default function DashboardHeader({
     };
   }, []);
 
-  const sidebarButtonLabel = isSidebarOpen
-    ? "Close navigation menu"
-    : "Open navigation menu";
-
   return (
     <header className="dashboard-header">
       <div className="dashboard-header-main">
-        {isMobileView ? (
-          <button
-            ref={sidebarButtonRef}
-            type="button"
-            className="dashboard-menu-button"
-            aria-label={sidebarButtonLabel}
-            aria-expanded={isSidebarOpen}
-            onClick={onSidebarToggle}
-          >
-            <span />
-            <span />
-            <span />
-          </button>
-        ) : null}
-
         <div>
           <p className="dashboard-header-label">{label}</p>
           <h1 className="dashboard-header-title">{title}</h1>

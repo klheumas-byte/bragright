@@ -574,18 +574,20 @@ export default function MyMatches() {
                 isSelected={match.id === selectedMatchId}
                 detailPath={`/dashboard/matches?matchId=${encodeURIComponent(match.id)}`}
                 actions={
-                  <MatchActions
-                    match={match}
-                    user={user}
-                    activeActionKey={activeActionKey}
-                    resultDraft={resultDrafts[match.id] || EMPTY_DRAFT}
-                    proofFile={proofFiles[match.id]}
-                    proofError={proofErrors[match.id]}
-                    uploadState={uploadStates[match.id]}
-                    onDraftChange={changeDraft}
-                    onProofChange={selectProof}
-                    onAction={requestAction}
-                  />
+                  match.id === selectedMatchId ? null : (
+                    <MatchActions
+                      match={match}
+                      user={user}
+                      activeActionKey={activeActionKey}
+                      resultDraft={resultDrafts[match.id] || EMPTY_DRAFT}
+                      proofFile={proofFiles[match.id]}
+                      proofError={proofErrors[match.id]}
+                      uploadState={uploadStates[match.id]}
+                      onDraftChange={changeDraft}
+                      onProofChange={selectProof}
+                      onAction={requestAction}
+                    />
+                  )
                 }
               />
             ))}

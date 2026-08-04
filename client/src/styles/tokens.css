@@ -257,8 +257,8 @@ html[data-theme="dark"] {
   --surface-interactive: var(--surface-highlight);
   --surface-panel: #192d38;
   --surface-panel-strong: #213b47;
-  --accent-primary: #18d5c3;
-  --accent-primary-strong: #11b9aa;
+  --accent-primary: #8d5cf6;
+  --accent-primary-strong: #7c3aed;
   --accent-secondary: #3b9eff;
   --accent-secondary-strong: #007fff;
   --accent-orange: #ff8a2a;
@@ -273,14 +273,14 @@ html[data-theme="dark"] {
   --text-secondary: #c4d2d8;
   --text-muted: #8ea3ad;
   --text-disabled: #4d5a6b;
-  --text-on-accent: #041417;
+  --text-on-accent: #f7fbfc;
   --border-subtle: #35505c;
-  --border-active: rgba(24, 213, 195, 0.5);
+  --border-active: rgba(141, 92, 246, 0.55);
   --border-blue: rgba(59, 158, 255, 0.42);
   --border-primary: var(--border-active);
   --border-secondary: var(--border-blue);
   --border-orange: rgba(255, 138, 26, 0.55);
-  --glow-primary: rgba(24, 213, 195, 0.12);
+  --glow-primary: rgba(141, 92, 246, 0.18);
   --glow-secondary: rgba(59, 158, 255, 0.1);
   --glow-orange: rgba(255, 138, 42, 0.16);
   /* The only three permitted elevation levels. */
@@ -289,11 +289,11 @@ html[data-theme="dark"] {
   --elevation-featured: 0 20px 48px rgba(0, 0, 0, 0.34);
   --shadow-card: var(--elevation-card);
   --shadow-elevated: var(--elevation-featured);
-  --gradient-primary: linear-gradient(135deg, #18d5c3 0%, #3b9eff 100%);
-  --gradient-blue: linear-gradient(135deg, #3b9eff 0%, #18d5c3 100%);
+  --gradient-primary: linear-gradient(135deg, #8d5cf6 0%, #3b9eff 100%);
+  --gradient-blue: linear-gradient(135deg, #3b9eff 0%, #8d5cf6 100%);
   --gradient-orange: linear-gradient(135deg, #ff8a2a 0%, #ff6a00 100%);
-  --gradient-arena-watermark: radial-gradient(circle at 70% 20%, rgba(24, 213, 195, 0.12), transparent 38%);
-  --icon-primary: #18d5c3;
+  --gradient-arena-watermark: radial-gradient(circle at 70% 20%, rgba(141, 92, 246, 0.18), transparent 38%);
+  --icon-primary: #8d5cf6;
   --icon-secondary: #3b9eff;
   --icon-muted: #8ea3ad;
   --icon-surface: #243b48;
@@ -306,7 +306,7 @@ html[data-theme="dark"] {
   --avatar-background-start: #28505e;
   --avatar-background-end: #087f79;
   --avatar-foreground: #ffffff;
-  --avatar-border: #55e2d5;
+  --avatar-border: #c4b5fd;
   --avatar-placeholder: #294b58;
   --landing-hero-start: #0c1b26;
   --landing-hero-end: #123f49;

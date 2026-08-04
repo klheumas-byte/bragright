@@ -12,7 +12,7 @@ import {
 } from "../components/LeaderboardSkeletons";
 import SidebarIcon from "../components/SidebarIcon";
 import TrophyWatermark from "../components/TrophyWatermark";
-import { Badge, Button, Card, EmptyState, Field, PageSection } from "../components/ui";
+import { Badge, Button, Card, EmptyState, Field, PageSection, Select } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
@@ -316,9 +316,10 @@ export default function Leaderboard() {
               description="Results retain their absolute official rank."
             />
             <div className="leaderboard-order-control" aria-label="Leaderboard filters">
-              <label htmlFor="leaderboard-category" className="match-score-label">Statistics category</label>
-              <select
+              <Field
+                control={Select}
                 id="leaderboard-category"
+                label="Statistics category"
                 value={category}
                 onChange={(event) => {
                   const next = new URLSearchParams(searchParams);
@@ -329,7 +330,7 @@ export default function Leaderboard() {
                 }}
               >
                 {Object.entries(CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
+              </Field>
               <Badge tone="info">All time</Badge>
               <p>Rate categories require at least five confirmed matches.</p>
             </div>
