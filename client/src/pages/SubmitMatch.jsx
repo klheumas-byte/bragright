@@ -37,6 +37,11 @@ export default function SubmitMatch() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    document.body.classList.add("challenge-player-route");
+    return () => document.body.classList.remove("challenge-player-route");
+  }, []);
+
+  useEffect(() => {
     const timeout = window.setTimeout(
       () => setDebouncedSearch(search.trim().replace(/\s+/g, " ")),
       SEARCH_DELAY_MS
@@ -115,7 +120,7 @@ export default function SubmitMatch() {
 
   return (
     <DashboardLayout title="New Challenge" description="Create one clear match request.">
-      <Card as="section" variant="dashboard" className="feature-hero-card match-hero">
+      <Card as="section" variant="dashboard" className="feature-hero-card match-hero match-challenge-hero">
         <TrophyWatermark className="arena-hero-watermark" />
         <div>
           <p className="section-label">Match request</p>
@@ -126,9 +131,9 @@ export default function SubmitMatch() {
 
       <ErrorState message={error} onRetry={() => loadOpponents({ forceRefresh: true })} retryLabel="Refresh opponents" />
 
-      <PageSection title="New challenge" description="The opponent must accept before a result can be entered.">
+      <PageSection className="challenge-page-section" title="New challenge" description="The opponent must accept before a result can be entered.">
         <Card variant="information" className="match-form-card match-challenge-card">
-          <form className="match-form" onSubmit={submitChallenge}>
+          <form className="match-form challenge-form" onSubmit={submitChallenge}>
             <Field
               id="opponent-search"
               type="search"
@@ -183,7 +188,9 @@ export default function SubmitMatch() {
             </div>
             <Field id="challenge-scheduled" type="datetime-local" label="Scheduled date and time" value={details.scheduled_at} disabled={submitting} onChange={(event) => setDetails((current) => ({ ...current, scheduled_at: event.target.value }))} />
             <Field control={Textarea} id="challenge-message" label="Optional message" rows={3} maxLength={500} value={details.request_message} disabled={submitting} onChange={(event) => setDetails((current) => ({ ...current, request_message: event.target.value }))} />
-            <Button type="submit" disabled={!selectedOpponent || submitting} isLoading={submitting} loadingText="Sending challenge…">Send match challenge</Button>
+            <div className="challenge-submit-action">
+              <Button type="submit" disabled={!selectedOpponent || submitting} isLoading={submitting} loadingText="Sending challenge…">Send Challenge</Button>
+            </div>
           </form>
         </Card>
       </PageSection>
