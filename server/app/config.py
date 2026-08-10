@@ -210,3 +210,6 @@ class Config:
             "Contact BragRight support or an administrator.",
         )
     ).strip()
+    PAYSTACK_PUBLIC_KEY = _get_setting("PAYSTACK_PUBLIC_KEY", "")
+    PAYSTACK_SECRET_KEY = _get_setting("PAYSTACK_SECRET_KEY", "")
+    PAYSTACK_CALLBACK_URL = _get_setting("PAYSTACK_CALLBACK_URL", "")

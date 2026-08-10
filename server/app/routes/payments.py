@@ -1,4 +1,7 @@
+import hashlib
+import hmac
 import re
+from uuid import uuid4
 from io import BytesIO
 from datetime import datetime, timezone
 
@@ -29,6 +32,7 @@ from ..services.api_security import get_json_object
 from ..services.subscription_service import (
     PAYMENT_METHODS,
     REMITTANCE_METHODS,
+    SUPPORTED_PAY_AHEAD_MONTHS,
     SubscriptionError,
     create_financial_audit,
     current_billing_month,
@@ -39,6 +43,8 @@ from ..services.subscription_service import (
     notify_user,
     officer_ledger,
     parse_amount_minor,
+    pay_ahead_options,
+    pay_ahead_plan,
     recalculate_subscription,
     run_monthly_billing,
     serialize_financial_document,
@@ -46,6 +52,11 @@ from ..services.subscription_service import (
     settings_from_config,
     subscription_access,
     utc_now,
+)
+from ..services.paystack_service import (
+    PaystackError,
+    initialize_transaction,
+    verify_transaction,
 )
 from ..services.upload_storage import get_upload_storage
 from .matches import _normalize_proof_filename, _validate_proof_image
@@ -239,6 +250,463 @@ def get_payment_settings():
     )
 
 
+def _paystack_error(error):
+    return _error(str(error), error.status_code, error.code)
+
+
+def _provider_paid_at(value, fallback):
+    if not value:
+        return fallback
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return fallback
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _ensure_paystack_periods_are_available(payment):
+    if payment.get("status") == "verified":
+        return
+    payments = get_payments_collection(config=current_app.config)
+    subscriptions = get_subscriptions_collection(config=current_app.config)
+    for period in payment.get("covered_periods") or [payment["billing_month"]]:
+        conflicting_payment = payments.find_one(
+            {
+                "_id": {"$ne": payment["_id"]},
+                "player_id": payment["player_id"],
+                "status": {"$in": ["recorded", "verified"]},
+                "$or": [{"billing_month": period}, {"covered_periods": period}],
+            }
+        )
+        subscription = subscriptions.find_one(
+            {"player_id": payment["player_id"], "billing_month": period}
+        )
+        linked_to_this_payment = str((subscription or {}).get("payment_id") or "") == str(payment["_id"])
+        already_satisfied = (
+            subscription
+            and subscription.get("status") in {"active", "exempted"}
+            and not linked_to_this_payment
+        )
+        if conflicting_payment or already_satisfied:
+            raise PaystackError(
+                f"Subscription period {period} is already fulfilled.",
+                code="subscription_period_already_fulfilled",
+                status_code=409,
+            )
+
+
+def _fulfill_verified_paystack_payment(payment, provider_data):
+    reference = str(provider_data.get("reference") or "")
+    if reference != payment.get("paystack_reference") or reference != payment.get("reference"):
+        raise PaystackError("Paystack verification returned a different reference.", code="reference_mismatch")
+    try:
+        provider_amount = int(provider_data.get("amount"))
+    except (TypeError, ValueError) as error:
+        raise PaystackError("Paystack verification returned an invalid amount.", code="amount_mismatch") from error
+    if provider_amount != int(payment.get("amount_minor") or 0):
+        raise PaystackError("Paystack verification amount does not match the payment.", code="amount_mismatch")
+    if str(provider_data.get("currency") or "").upper() != "GHS":
+        raise PaystackError("Paystack verification currency does not match GHS.", code="currency_mismatch")
+
+    provider_status = str(provider_data.get("status") or "").lower()
+    payments = get_payments_collection(config=current_app.config)
+    now = utc_now()
+    if provider_status != "success":
+        update = {"provider_status": provider_status or "unknown", "updated_at": now}
+        if provider_status in {"failed", "abandoned", "reversed"}:
+            update["status"] = "failed"
+        payments.update_one({"_id": payment["_id"], "fulfilled_at": None}, {"$set": update})
+        return payments.find_one({"_id": payment["_id"]}), False
+
+    if payment.get("fulfilled_at"):
+        return payment, False
+    _ensure_paystack_periods_are_available(payment)
+    paid_at = _provider_paid_at(provider_data.get("paid_at"), now)
+    covered_periods = payment.get("covered_periods") or [payment["billing_month"]]
+    for period in covered_periods:
+        get_or_create_subscription(current_app.config, payment["player_id"], period, now=now)
+    payments.update_one(
+        {
+            "_id": payment["_id"],
+            "fulfilled_at": None,
+            "status": {"$nin": ["reversed"]},
+        },
+        {
+            "$set": {
+                "status": "verified",
+                "provider_status": "success",
+                "paystack_transaction_id": provider_data.get("id"),
+                "payment_date": paid_at,
+                "paid_at": paid_at,
+                "verified_at": now,
+                "updated_at": now,
+            }
+        },
+    )
+    # Recalculation is itself idempotent. Running it before setting fulfilled_at
+    # also makes a retry repair a process interrupted between these two writes.
+    for period in covered_periods:
+        recalculate_subscription(
+            current_app.config,
+            payment["player_id"],
+            period,
+            now=now,
+        )
+    fulfilled = payments.update_one(
+        {"_id": payment["_id"], "fulfilled_at": None, "status": "verified"},
+        {"$set": {
+            "fulfilled_at": now,
+            "fulfilled_periods": covered_periods,
+            "paid_through_period": covered_periods[-1],
+            "updated_at": now,
+        }},
+    ).modified_count == 1
+    updated = payments.find_one({"_id": payment["_id"]})
+    if fulfilled:
+        actor = {"id": "paystack", "username": "Paystack", "role": "system"}
+        create_financial_audit(
+            current_app.config,
+            actor=actor,
+            action="paystack_payment_verified",
+            target_user_id=payment["player_id"],
+            amount_minor=payment["amount_minor"],
+            billing_month=payment["billing_month"],
+            previous_state=payment.get("status"),
+            new_state="verified",
+            reference=reference,
+            metadata={"payment_id": str(payment["_id"]), "provider": "paystack"},
+        )
+        notify_user(
+            current_app.config,
+            payment["player_id"],
+            "payment_verified",
+            f"Your Paystack payment for {payment['billing_month']} was verified.",
+            {"payment_id": str(payment["_id"]), "billing_month": payment["billing_month"]},
+        )
+    return updated, fulfilled
+
+
+def _rotate_failed_paystack_transaction(payment):
+    payments = get_payments_collection(config=current_app.config)
+    previous_reference = payment["paystack_reference"]
+    reference = f"BR-PSTK-{uuid4().hex}"
+    payments.update_one(
+        {"_id": payment["_id"], "fulfilled_at": None},
+        {
+            "$set": {
+                "reference": reference,
+                "paystack_reference": reference,
+                "status": "paystack_pending",
+                "provider_status": "pending",
+                "paid_at": None,
+                "verified_at": None,
+                "updated_at": utc_now(),
+            },
+            "$unset": {
+                "authorization_url": "",
+                "provider_access_code": "",
+                "paystack_transaction_id": "",
+                "initialization_outcome_unknown": "",
+                "provider_http_status": "",
+            },
+            "$addToSet": {"previous_paystack_references": previous_reference},
+        },
+    )
+    return payments.find_one({"_id": payment["_id"]})
+
+
+@payments_bp.post("/paystack/initialize")
+@require_role("player")
+def initialize_paystack_payment():
+    payload, body_error = get_json_object(allowed_fields={"payment_type", "months"})
+    if body_error:
+        return body_error
+    payment_type = str(payload.get("payment_type") or "").strip().lower()
+    if payment_type != "monthly_subscription":
+        return _error("Payment type is invalid.", 422, "invalid_payment_type")
+    months = payload.get("months", 1)
+    if isinstance(months, bool) or not isinstance(months, int) or months not in SUPPORTED_PAY_AHEAD_MONTHS:
+        return _error(
+            "Months must be one of 1, 2, 3, 6, or 12.",
+            422,
+            "invalid_subscription_months",
+        )
+
+    actor = _current_actor()
+    payments = get_payments_collection(config=current_app.config)
+    open_payment = payments.find_one({
+        "player_id": actor["id"],
+        "source": "paystack",
+        "fulfilled_at": None,
+        "status": {"$in": ["paystack_pending", "paystack_initialized", "initialization_failed"]},
+    })
+    if open_payment and open_payment.get("status") == "paystack_initialized":
+        try:
+            provider_data = verify_transaction(
+                current_app.config, open_payment["paystack_reference"]
+            )
+            reconciled_payment, _ = _fulfill_verified_paystack_payment(
+                open_payment, provider_data
+            )
+        except PaystackError as error:
+            # Never return a cached checkout URL when its provider state cannot
+            # be confirmed. This avoids reopening a possibly completed link.
+            return _paystack_error(error)
+        provider_status = str(provider_data.get("status") or "").lower()
+        if provider_status == "success":
+            open_payment = None
+        elif provider_status in {"pending", "ongoing", "processing", "queued"}:
+            if int(open_payment.get("months") or 1) != months:
+                return _error(
+                    "A different Paystack checkout is already open. Complete it before changing the number of months.",
+                    409,
+                    "paystack_checkout_in_progress",
+                )
+            return jsonify({
+                "success": True,
+                "data": {
+                    "authorization_url": open_payment["authorization_url"],
+                    "reference": open_payment["reference"],
+                    "payment": serialize_financial_document(reconciled_payment),
+                },
+            })
+        else:
+            open_payment = _rotate_failed_paystack_transaction(reconciled_payment)
+    if (
+        open_payment
+        and open_payment.get("status") == "initialization_failed"
+        and open_payment.get("initialization_outcome_unknown")
+    ):
+        try:
+            provider_data = verify_transaction(
+                current_app.config, open_payment["paystack_reference"]
+            )
+        except PaystackError as error:
+            if error.provider_status == 404:
+                open_payment = _rotate_failed_paystack_transaction(open_payment)
+            else:
+                return _paystack_error(error)
+        else:
+            provider_status = str(provider_data.get("status") or "").lower()
+            reconciled_payment, _ = _fulfill_verified_paystack_payment(
+                open_payment, provider_data
+            )
+            if provider_status == "success":
+                open_payment = None
+            elif provider_status in {"failed", "abandoned", "reversed"}:
+                open_payment = _rotate_failed_paystack_transaction(reconciled_payment)
+            else:
+                return _error(
+                    "Paystack is still processing the previous transaction initialization.",
+                    409,
+                    "paystack_initialization_pending",
+                )
+    if open_payment and int(open_payment.get("months") or 1) != months:
+        return _error(
+            "A different Paystack checkout is already open. Complete it before changing the number of months.",
+            409,
+            "paystack_checkout_in_progress",
+        )
+
+    try:
+        plan = pay_ahead_plan(current_app.config, actor["id"], months)
+    except SubscriptionError as error:
+        return _handle_subscription_error(error)
+    month = plan["first_covered_period"]
+    subscription = get_or_create_subscription(current_app.config, actor["id"], month)
+    amount_minor = plan["total_minor"]
+    deduplication_key = (
+        f"paystack:{actor['id']}:{plan['first_covered_period']}:"
+        f"{plan['last_covered_period']}:monthly_subscription"
+    )
+    payment = open_payment or payments.find_one({"deduplication_key": deduplication_key})
+    if payment and payment.get("status") == "failed" and not payment.get("fulfilled_at"):
+        payment = _rotate_failed_paystack_transaction(payment)
+
+    now = utc_now()
+    if not payment:
+        reference = f"BR-PSTK-{uuid4().hex}"
+        document = {
+            "reference": reference,
+            "paystack_reference": reference,
+            "player_id": actor["id"],
+            "subscription_id": str(subscription["_id"]),
+            "billing_month": month,
+            "purpose": f"{months}-Month BragRight subscription",
+            "payment_type": payment_type,
+            "months": months,
+            "monthly_rate_minor": plan["monthly_rate_minor"],
+            "amount_minor": amount_minor,
+            "currency": "GHS",
+            "first_covered_period": plan["first_covered_period"],
+            "last_covered_period": plan["last_covered_period"],
+            "covered_periods": plan["covered_periods"],
+            "coverage_keys": [f"{actor['id']}:{period}" for period in plan["covered_periods"]],
+            "status": "paystack_pending",
+            "provider_status": "pending",
+            "payment_method": "mobile_money",
+            "source": "paystack",
+            "recorded_by": actor["id"],
+            "received_by": "paystack",
+            "payment_date": None,
+            "paid_at": None,
+            "verified_at": None,
+            "fulfilled_at": None,
+            "metadata": {
+                "player_id": actor["id"],
+                "payment_type": payment_type,
+                "months": months,
+                "covered_periods": plan["covered_periods"],
+            },
+            "deduplication_key": deduplication_key,
+            "created_at": now,
+            "updated_at": now,
+        }
+        try:
+            payment_id = payments.insert_one(document).inserted_id
+            payment = payments.find_one({"_id": payment_id})
+        except DuplicateKeyError:
+            payment = payments.find_one({"deduplication_key": deduplication_key})
+            if not payment:
+                return _error(
+                    "One or more selected subscription periods are already reserved or paid.",
+                    409,
+                    "subscription_period_already_allocated",
+                )
+
+    safe_metadata = {
+        "player_id": payment["player_id"],
+        "payment_id": str(payment["_id"]),
+        "payment_type": payment["payment_type"],
+        "months": payment.get("months") or 1,
+        "covered_periods": payment.get("covered_periods") or [payment["billing_month"]],
+    }
+    try:
+        initialized = initialize_transaction(
+            current_app.config,
+            email=g.current_user["email"],
+            amount_minor=payment["amount_minor"],
+            reference=payment["reference"],
+            metadata=safe_metadata,
+        )
+    except PaystackError as error:
+        payments.update_one(
+            {"_id": payment["_id"], "fulfilled_at": None},
+            {"$set": {
+                "status": "initialization_failed",
+                "initialization_outcome_unknown": bool(error.outcome_unknown),
+                "provider_http_status": error.provider_status,
+                "updated_at": utc_now(),
+            }},
+        )
+        return _paystack_error(error)
+    if str(initialized.get("reference") or "") != payment["reference"] or not initialized.get("authorization_url"):
+        return _paystack_error(PaystackError("Paystack returned an invalid checkout response."))
+    payments.update_one(
+        {"_id": payment["_id"], "fulfilled_at": None},
+        {"$set": {
+            "status": "paystack_initialized",
+            "authorization_url": initialized["authorization_url"],
+            "provider_access_code": initialized.get("access_code"),
+            "updated_at": utc_now(),
+        }, "$unset": {
+            "initialization_outcome_unknown": "",
+            "provider_http_status": "",
+        }},
+    )
+    return jsonify({
+        "success": True,
+        "data": {
+            "authorization_url": initialized["authorization_url"],
+            "reference": payment["reference"],
+            "payment": serialize_financial_document(payments.find_one({"_id": payment["_id"]})),
+        },
+    }), 201
+
+
+@payments_bp.get("/paystack/verify")
+@require_role("player")
+def verify_paystack_payment():
+    reference = str(request.args.get("reference") or "").strip()
+    payment = get_payments_collection(config=current_app.config).find_one(
+        {"paystack_reference": reference, "player_id": str(g.current_user["_id"]), "source": "paystack"}
+    )
+    if not payment:
+        return _error("Payment was not found.", 404, "not_found")
+    try:
+        provider_data = verify_transaction(current_app.config, reference)
+        updated, _ = _fulfill_verified_paystack_payment(payment, provider_data)
+    except PaystackError as error:
+        return _paystack_error(error)
+    return jsonify({"success": True, "data": {"payment": serialize_financial_document(updated)}})
+
+
+@payments_bp.post("/paystack/webhook")
+def paystack_webhook():
+    raw_body = request.get_data(cache=True)
+    supplied_signature = str(request.headers.get("x-paystack-signature") or "").strip().lower()
+    secret = str(current_app.config.get("PAYSTACK_SECRET_KEY") or "")
+    expected_signature = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha512).hexdigest()
+    if not secret.startswith("sk_test_") or not supplied_signature or not hmac.compare_digest(supplied_signature, expected_signature):
+        return _error("Webhook signature is invalid.", 401, "invalid_webhook_signature")
+    event = request.get_json(silent=True)
+    if not isinstance(event, dict):
+        return _error("Webhook payload is invalid.", 400, "invalid_webhook_payload")
+    if event.get("event") != "charge.success":
+        return jsonify({"success": True, "data": {"processed": False}})
+    reference = str((event.get("data") or {}).get("reference") or "")
+    payment = get_payments_collection(config=current_app.config).find_one(
+        {"paystack_reference": reference, "source": "paystack"}
+    )
+    if not payment:
+        return _error("Payment was not found.", 404, "not_found")
+    if payment.get("fulfilled_at"):
+        return jsonify({"success": True, "data": {"processed": False, "duplicate": True}})
+    try:
+        provider_data = verify_transaction(current_app.config, reference)
+        updated, fulfilled = _fulfill_verified_paystack_payment(payment, provider_data)
+    except PaystackError as error:
+        return _paystack_error(error)
+    if str(provider_data.get("status") or "").lower() != "success":
+        return _error("Paystack transaction is not successful.", 409, "transaction_not_successful")
+    return jsonify({
+        "success": True,
+        "data": {"processed": fulfilled, "payment_id": str(updated["_id"])},
+    })
+
+
+@payments_bp.get("/history")
+@require_role("player")
+def get_payment_history():
+    items = list(
+        get_payments_collection(config=current_app.config)
+        .find({"player_id": str(g.current_user["_id"])})
+        .sort("created_at", DESCENDING)
+        .limit(100)
+    )
+    history = [
+        {
+            "purpose": item.get("purpose") or "Monthly BragRight subscription",
+            "months": int(item.get("months") or 1),
+            "amount": money(item.get("amount_minor")),
+            "currency": item.get("currency") or "GHS",
+            "status": item.get("status"),
+            "reference": item.get("reference"),
+            "first_covered_period": item.get("first_covered_period") or item.get("billing_month"),
+            "last_covered_period": item.get("last_covered_period") or item.get("billing_month"),
+            "covered_periods": item.get("covered_periods") or ([item["billing_month"]] if item.get("billing_month") else []),
+            "paid_through_period": item.get("paid_through_period"),
+            "date": (item.get("paid_at") or item.get("payment_date") or item.get("created_at")).isoformat()
+            if item.get("paid_at") or item.get("payment_date") or item.get("created_at")
+            else None,
+        }
+        for item in items
+    ]
+    return jsonify({"success": True, "data": {"payments": history}})
+
+
 @payments_bp.get("/notifications")
 @require_role("player", *FINANCIAL_ROLES)
 def payment_notifications():
@@ -292,6 +760,21 @@ def get_my_subscription():
         .limit(50)
     )
     access = subscription_access(current_app.config, user)
+    preview_options = [
+        (
+            {
+                "months": plan["months"],
+                "monthly_rate": money(plan["monthly_rate_minor"]),
+                "total": money(plan["total_minor"]),
+                "currency": plan["currency"],
+                "first_covered_period": plan["first_covered_period"],
+                "last_covered_period": plan["last_covered_period"],
+                "covered_periods": plan["covered_periods"],
+                "paid_through_period": plan["paid_through_period"],
+            }
+        )
+        for plan in pay_ahead_options(current_app.config, str(user["_id"]))
+    ]
     notifications = list(
         get_notifications_collection(config=current_app.config)
         .find({"user_id": str(user["_id"])})
@@ -305,6 +788,7 @@ def get_my_subscription():
                 "access": access,
                 "subscription": serialize_financial_document(subscription),
                 "payments": [serialize_financial_document(item) for item in payments],
+                "pay_ahead_options": preview_options,
                 "notifications": [serialize_financial_document(item) for item in notifications],
                 "instructions": settings_from_config(current_app.config)["payment_instructions"],
                 "payment_destination": settings_from_config(current_app.config)["payment_destination"],

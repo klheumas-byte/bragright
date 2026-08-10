@@ -33,6 +33,7 @@ SUBSCRIPTION_STATUSES = {
 }
 PAYMENT_METHODS = {"cash", "mobile_money", "bank_deposit", "bank_transfer", "other"}
 REMITTANCE_METHODS = {"mobile_money", "bank_deposit", "bank_transfer"}
+SUPPORTED_PAY_AHEAD_MONTHS = (1, 2, 3, 6, 12)
 
 
 class SubscriptionError(ValueError):
@@ -88,6 +89,102 @@ def normalize_billing_month(value):
 def current_billing_month(now=None):
     now = now or utc_now()
     return f"{now.year:04d}-{now.month:02d}"
+
+
+def shift_billing_month(billing_month, offset):
+    billing_month = normalize_billing_month(billing_month)
+    year, month = (int(part) for part in billing_month.split("-"))
+    absolute_month = year * 12 + month - 1 + int(offset)
+    shifted_year, shifted_month = divmod(absolute_month, 12)
+    return f"{shifted_year:04d}-{shifted_month + 1:02d}"
+
+
+def _period_is_satisfied(config, player_id, billing_month):
+    subscription = get_subscriptions_collection(config=config).find_one(
+        {"player_id": str(player_id), "billing_month": billing_month}
+    )
+    if subscription and subscription.get("status") in {"active", "exempted"}:
+        return True
+    return get_payments_collection(config=config).find_one(
+        {
+            "player_id": str(player_id),
+            "status": {"$in": list(ACTIVE_PAYMENT_STATUSES)},
+            "$or": [
+                {"billing_month": billing_month},
+                {"covered_periods": billing_month},
+            ],
+        }
+    ) is not None
+
+
+def pay_ahead_plan(config, player_id, months, *, now=None):
+    if isinstance(months, bool) or not isinstance(months, int) or months not in SUPPORTED_PAY_AHEAD_MONTHS:
+        raise SubscriptionError(
+            "Months must be one of 1, 2, 3, 6, or 12.",
+            code="invalid_subscription_months",
+        )
+    settings = settings_from_config(config)
+    if settings["currency"] != "GHS":
+        raise SubscriptionError(
+            "Pay Ahead supports GHS subscriptions only.",
+            code="unsupported_currency",
+            status_code=503,
+        )
+    candidate = current_billing_month(now)
+    # Existing paid/exempted periods form the paid-through prefix. New
+    # purchases always begin at the first genuinely unpaid period.
+    for _ in range(240):
+        if not _period_is_satisfied(config, player_id, candidate):
+            break
+        candidate = shift_billing_month(candidate, 1)
+    else:
+        raise SubscriptionError("No payable subscription period was found.")
+    covered_periods = [shift_billing_month(candidate, offset) for offset in range(months)]
+    if any(_period_is_satisfied(config, player_id, period) for period in covered_periods):
+        raise SubscriptionError(
+            "Existing subscription coverage is not consecutive. Contact support before paying ahead.",
+            code="non_consecutive_subscription_coverage",
+            status_code=409,
+        )
+    monthly_rate_minor = int(settings["monthly_fee_minor"])
+    return {
+        "months": months,
+        "monthly_rate_minor": monthly_rate_minor,
+        "total_minor": monthly_rate_minor * months,
+        "currency": "GHS",
+        "first_covered_period": covered_periods[0],
+        "last_covered_period": covered_periods[-1],
+        "covered_periods": covered_periods,
+        "paid_through_period": shift_billing_month(candidate, -1)
+        if candidate != current_billing_month(now)
+        else None,
+    }
+
+
+def pay_ahead_options(config, player_id, *, now=None):
+    """Build every supported preview from one authoritative allocation scan."""
+    maximum_plan = pay_ahead_plan(
+        config,
+        player_id,
+        max(SUPPORTED_PAY_AHEAD_MONTHS),
+        now=now,
+    )
+    options = []
+    for months in SUPPORTED_PAY_AHEAD_MONTHS:
+        covered_periods = maximum_plan["covered_periods"][:months]
+        options.append(
+            {
+                "months": months,
+                "monthly_rate_minor": maximum_plan["monthly_rate_minor"],
+                "total_minor": maximum_plan["monthly_rate_minor"] * months,
+                "currency": maximum_plan["currency"],
+                "first_covered_period": covered_periods[0],
+                "last_covered_period": covered_periods[-1],
+                "covered_periods": covered_periods,
+                "paid_through_period": maximum_plan["paid_through_period"],
+            }
+        )
+    return options
 
 
 def month_dates(billing_month, grace_days=7):
@@ -242,8 +339,11 @@ def recalculate_subscription(config, player_id, billing_month, *, now=None):
         get_payments_collection(config=config).find(
             {
                 "player_id": str(player_id),
-                "billing_month": billing_month,
                 "status": {"$in": list(ACTIVE_PAYMENT_STATUSES)},
+                "$or": [
+                    {"billing_month": billing_month},
+                    {"covered_periods": billing_month},
+                ],
             }
         )
     )
@@ -261,7 +361,12 @@ def recalculate_subscription(config, player_id, billing_month, *, now=None):
         if requires_verification
         else recorded_payments
     )
-    amount_paid_minor = sum(int(item.get("amount_minor") or 0) for item in valid_payments)
+    amount_paid_minor = sum(
+        int(item.get("monthly_rate_minor") or 0)
+        if billing_month in (item.get("covered_periods") or [])
+        else int(item.get("amount_minor") or 0)
+        for item in valid_payments
+    )
     latest_payment = max(valid_payments, key=lambda item: item.get("created_at") or now, default=None)
     override_status = subscription.get("override_status")
     if override_status == "suspended":

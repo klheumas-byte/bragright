@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { getDashboardActions } from "../services/api";
+import { getDashboardActions, getSubscriptionStatus } from "../services/api";
 import ProfileAvatar from "./ProfileAvatar";
 import SidebarIcon from "./SidebarIcon";
 import {
@@ -44,7 +44,7 @@ function Sidebar({
         ? ADMIN_NAVIGATION_ITEMS
         : [ADMIN_NAVIGATION_ITEMS[0], ...PLAYER_NAVIGATION_ITEMS];
     },
-    [isAdminView, user?.is_admin, user?.role]
+    [isAdminView, user?.is_admin, user?.role, user?.subscription_access]
   );
   const identity = useMemo(() => ({ ...getSidebarIdentity(user), role: user?.role }), [
     user?.display_name,
@@ -83,6 +83,15 @@ function Sidebar({
     return () => {
       isMounted = false;
     };
+  }, [user?.id, user?.role]);
+
+  useEffect(() => {
+    if (user?.role !== "player") return undefined;
+    const preloadId = window.setTimeout(() => {
+      void import("../pages/SubscriptionStatus");
+      getSubscriptionStatus().catch(() => undefined);
+    }, 200);
+    return () => window.clearTimeout(preloadId);
   }, [user?.id, user?.role]);
 
   useEffect(() => {

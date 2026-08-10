@@ -30,6 +30,8 @@ const MatchAction = lazyWithRouteRecovery(() => import("./pages/MatchAction"), "
 const PaymentOperations = lazyWithRouteRecovery(() => import("./pages/PaymentOperations"), "payment-operations");
 const SubscriptionStatus = lazyWithRouteRecovery(() => import("./pages/SubscriptionStatus"), "subscription-status");
 const PasswordSettings = lazyWithRouteRecovery(() => import("./pages/PasswordSettings"), "password-settings");
+const PaystackCheckout = lazyWithRouteRecovery(() => import("./pages/PaystackCheckout"), "paystack-checkout");
+const PaystackCallback = lazyWithRouteRecovery(() => import("./pages/PaystackCallback"), "paystack-callback");
 
 export default function App() {
   return (
@@ -64,6 +66,8 @@ export default function App() {
             <Route path="/dashboard/submit-match" element={<ProtectedRoute requireSubscription><SubmitMatch /></ProtectedRoute>} />
             <Route path="/dashboard/matches" element={<ProtectedRoute requireSubscription><MyMatches /></ProtectedRoute>} />
             <Route path="/payments/status" element={<ProtectedRoute allowedRoles={["player"]}><SubscriptionStatus /></ProtectedRoute>} />
+            <Route path="/payments/pay" element={<ProtectedRoute allowedRoles={["player"]}><PaystackCheckout /></ProtectedRoute>} />
+            <Route path="/payments/paystack/callback" element={<ProtectedRoute allowedRoles={["player"]}><PaystackCallback /></ProtectedRoute>} />
             <Route path="/account/password" element={<PasswordSettings />} />
             <Route path="/payments/dashboard" element={<ProtectedRoute allowedRoles={["payment_officer"]}><PaymentOperations /></ProtectedRoute>} />
             <Route path="/payments/record" element={<ProtectedRoute allowedRoles={["payment_officer"]}><PaymentOperations view="record" /></ProtectedRoute>} />

@@ -200,6 +200,7 @@ def create_app(config_class=Config):
         },
         "admin.get_admin_disputes": {"page", "limit"},
         "payments.get_my_subscription": {"billing_month"},
+        "payments.verify_paystack_payment": {"reference"},
         "payments.search_subscription_players": {"search", "billing_month", "subscription_status"},
         "payments.list_payments": {"billing_month", "payment_method", "status", "officer_id", "player"},
         "payments.payment_dashboard": {"billing_month", "officer_id", "payment_method", "payment_status", "subscription_status", "player"},

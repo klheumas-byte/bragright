@@ -416,6 +416,18 @@ def ensure_subscription_indexes(db):
         unique=True,
         name="payments_deduplication_unique",
     )
+    db[PAYMENTS_COLLECTION_NAME].create_index(
+        "paystack_reference",
+        unique=True,
+        sparse=True,
+        name="payments_paystack_reference_unique",
+    )
+    db[PAYMENTS_COLLECTION_NAME].create_index(
+        "coverage_keys",
+        unique=True,
+        partialFilterExpression={"coverage_keys": {"$exists": True}},
+        name="payments_subscription_coverage_unique",
+    )
     db[REMITTANCES_COLLECTION_NAME].create_index(
         [("payment_officer_id", ASCENDING), ("submitted_at", DESCENDING)],
         name="remittances_officer_time",

@@ -43,6 +43,8 @@ const ROUTE_META = {
   "/payments/record": ["Record Payment", "Record an identified player's monthly subscription payment."],
   "/payments/remittances": ["Remittances", "Submit collected funds for Super Admin verification."],
   "/payments/status": ["Subscription", "Review your monthly access and payment history."],
+  "/payments/pay": ["Mobile Money", "Review and continue to Paystack hosted checkout."],
+  "/payments/paystack/callback": ["Payment confirmation", "Confirming your payment securely."],
   "/account/password": ["Password Settings", "Choose and protect your preferred sign-in password."],
 };
 

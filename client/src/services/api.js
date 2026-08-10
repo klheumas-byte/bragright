@@ -1065,12 +1065,38 @@ function financialQuery(path, filters = {}) {
   return apiRequest(`${path}${query ? `?${query}` : ""}`);
 }
 
-export function getSubscriptionStatus(billingMonth) {
-  return financialQuery("/payments/subscription/me", { billing_month: billingMonth });
+export function getSubscriptionStatus(billingMonth, { forceRefresh = false } = {}) {
+  const params = new URLSearchParams();
+  if (billingMonth) params.set("billing_month", billingMonth);
+  const query = params.toString();
+  const path = `/payments/subscription/me${query ? `?${query}` : ""}`;
+  return cachedApiRequest(path, {
+    cacheKey: `subscription-status:${billingMonth || "current"}`,
+    ttlMs: 15_000,
+    forceRefresh,
+  });
 }
 
 export function getPaymentSettings() {
   return apiRequest("/payments/settings");
+}
+
+export function initializePaystackPayment(months = 1, paymentType = "monthly_subscription") {
+  return paymentMutation("/payments/paystack/initialize", {
+    method: "POST",
+    body: JSON.stringify({ payment_type: paymentType, months }),
+  });
+}
+
+export function verifyPaystackPayment(reference) {
+  const params = new URLSearchParams({ reference });
+  return apiMutation(`/payments/paystack/verify?${params.toString()}`, {
+    method: "GET",
+  });
+}
+
+export function getPaymentHistory() {
+  return apiRequest("/payments/history");
 }
 
 export function getPaymentDashboard(filters = {}) {

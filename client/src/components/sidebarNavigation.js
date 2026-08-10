@@ -6,6 +6,7 @@ export const PLAYER_NAVIGATION_ITEMS = Object.freeze([
   { id: "leaderboard", label: "Leaderboard", icon: "leaderboard", to: "/leaderboard" },
   { id: "head-to-head", label: "Head-to-Head", icon: "compare", to: "/head-to-head" },
   { id: "my-activity", label: "My Activity", icon: "activity", to: "/activity" },
+  { id: "subscription", label: "Subscription", icon: "activity", to: "/payments/status" },
   { id: "password", label: "Password", icon: "settings", to: "/account/password" },
 ]);
 

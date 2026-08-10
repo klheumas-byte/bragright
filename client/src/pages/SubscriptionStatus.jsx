@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Button from "../components/ui/Button";
+import PayAheadPanel from "../components/PayAheadPanel";
 import DashboardLayout from "../layouts/DashboardLayout";
 import { getSubscriptionStatus, submitPlayerPayment, uploadPaymentProof } from "../services/api";
 
@@ -84,7 +85,7 @@ export default function SubscriptionStatus() {
       description="Review monthly access, payment instructions, submissions, and receipts."
       showBackButton={false}
     >
-      <section className="feature-hero-card subscription-hero">
+      {state.data ? <section className="feature-hero-card subscription-hero">
         <div>
           <p className="section-label">Monthly membership</p>
           <h2 className="feature-hero-title">
@@ -95,7 +96,7 @@ export default function SubscriptionStatus() {
         <span className={`ui-badge ui-badge--${statusTone(access?.status)}`}>
           {formatStatus(access?.status || "payment_due")}
         </span>
-      </section>
+      </section> : null}
 
       {state.error ? (
         <div className="ui-alert ui-alert--danger" role="alert">
@@ -104,10 +105,13 @@ export default function SubscriptionStatus() {
         </div>
       ) : null}
 
-      {state.loading ? (
-        <div className="dashboard-panel skeleton" role="status">Loading subscription…</div>
+      {state.loading && !state.data ? (
+        <div className="subscription-layout" role="status" aria-label="Loading subscription and Pay Ahead options">
+          <div className="feature-hero-card skeleton">Loading subscription…</div>
+          <div className="dashboard-panel skeleton">Loading Pay Ahead options…</div>
+        </div>
       ) : (
-        <div className="subscription-layout">
+        <div className="subscription-layout" aria-busy={state.loading}>
           <section className="dashboard-panel">
             <div className="panel-header">
               <div><p className="panel-kicker">Current period</p><h2 className="panel-title">Account status</h2></div>
@@ -118,7 +122,7 @@ export default function SubscriptionStatus() {
               <div><dt>Amount paid</dt><dd>{formatMoney(subscription?.amount_paid || 0, settings?.currency)}</dd></div>
               <div><dt>Due date</dt><dd>{formatDate(subscription?.due_date)}</dd></div>
               <div><dt>Grace period ends</dt><dd>{formatDate(subscription?.grace_ends_at)}</dd></div>
-              <div><dt>Paid through</dt><dd>{formatDate(subscription?.expires_at)}</dd></div>
+              <div><dt>Paid through</dt><dd>{formatPeriod(state.data?.pay_ahead_options?.[0]?.paid_through_period)}</dd></div>
             </dl>
             {!access?.allowed ? (
               <div className="ui-alert ui-alert--warning">
@@ -127,6 +131,11 @@ export default function SubscriptionStatus() {
               </div>
             ) : null}
           </section>
+
+          <PayAheadPanel
+            options={state.data?.pay_ahead_options}
+            disabled={hasPendingSubmission}
+          />
 
           <section className="dashboard-panel">
             <div className="panel-header">
@@ -164,8 +173,9 @@ export default function SubscriptionStatus() {
               <div className="financial-card-list">
                 {state.data.payments.map((payment) => (
                   <article className="financial-record-card" key={payment.id}>
-                    <div><strong>{formatMoney(payment.amount, payment.currency)}</strong><span>{payment.billing_month}</span></div>
+                    <div><strong>{formatMoney(payment.amount, payment.currency)}</strong><span>{paymentLabel(payment)}</span></div>
                     <span className={`ui-badge ui-badge--${statusTone(payment.status)}`}>{formatStatus(payment.status)}</span>
+                    <small>{paymentCoverage(payment)} · {formatStatus(payment.status === "verified" ? "successful" : payment.status)}</small>
                     <small>{formatStatus(payment.payment_method)} · {payment.reference || "Cash payment"} · {formatDate(payment.payment_date)}</small>
                     {payment.rejection_reason ? <small>Reason: {payment.rejection_reason}</small> : null}
                   </article>
@@ -195,4 +205,22 @@ function statusTone(status) {
   if (["active", "verified", "recorded", "exempted"].includes(status)) return "success";
   if (["restricted", "expired", "reversed", "rejected", "suspended"].includes(status)) return "danger";
   return "warning";
+}
+
+function paymentLabel(payment) {
+  const months = Number(payment.months || 1);
+  return `${months}-Month Subscription`;
+}
+
+function paymentCoverage(payment) {
+  const first = formatPeriod(payment.first_covered_period || payment.billing_month);
+  const last = formatPeriod(payment.last_covered_period || payment.billing_month);
+  return first === last ? first : `${first}–${last}`;
+}
+
+function formatPeriod(value) {
+  const [year, month] = String(value || "").split("-").map(Number);
+  if (!year || !month) return "Period unavailable";
+  return new Intl.DateTimeFormat("en-GH", { month: "long", year: "numeric", timeZone: "UTC" })
+    .format(new Date(Date.UTC(year, month - 1, 1)));
 }

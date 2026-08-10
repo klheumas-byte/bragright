@@ -9,6 +9,9 @@ const sidebar = readFileSync(new URL("components/Sidebar.jsx", root), "utf8");
 const navigation = readFileSync(new URL("components/sidebarNavigation.js", root), "utf8");
 const operations = readFileSync(new URL("pages/PaymentOperations.jsx", root), "utf8");
 const status = readFileSync(new URL("pages/SubscriptionStatus.jsx", root), "utf8");
+const checkout = readFileSync(new URL("pages/PaystackCheckout.jsx", root), "utf8");
+const callback = readFileSync(new URL("pages/PaystackCallback.jsx", root), "utf8");
+const payAhead = readFileSync(new URL("components/PayAheadPanel.jsx", root), "utf8");
 const api = readFileSync(new URL("services/api.js", root), "utf8");
 const playerDirectory = readFileSync(new URL("context/PlayerDirectoryContext.jsx", root), "utf8");
 const theme = readFileSync(new URL("styles/premium-theme.css", root), "utf8");
@@ -28,6 +31,14 @@ test("restricted players are centralized onto the subscription status route", ()
   assert.match(app, /\/dashboard"[\s\S]*?requireSubscription/);
   assert.match(app, /\/matches\/:matchId\/result\/submit"[\s\S]*?requireSubscription/);
   assert.match(navigation, /RESTRICTED_PLAYER_NAVIGATION_ITEMS[\s\S]*?\/payments\/status/);
+});
+
+test("active and restricted players can reach the mounted subscription page from navigation", () => {
+  assert.match(navigation, /PLAYER_NAVIGATION_ITEMS[\s\S]*?label: "Subscription"[\s\S]*?to: "\/payments\/status"/);
+  assert.match(navigation, /RESTRICTED_PLAYER_NAVIGATION_ITEMS[\s\S]*?label: "Subscription"[\s\S]*?to: "\/payments\/status"/);
+  assert.match(app, /path="\/payments\/status"[\s\S]*?<SubscriptionStatus/);
+  assert.match(status, /<PayAheadPanel[\s\S]*?pay_ahead_options/);
+  assert.doesNotMatch(status, /access\?\.allowed\s*&&[\s\S]{0,120}<PayAheadPanel/);
 });
 
 test("financial screens use authoritative APIs and never edit calculated balances", () => {
@@ -59,8 +70,46 @@ test("payment status, empty, loading, error, and semantic states remain visible"
   assert.match(theme, /\.financial-record-card[\s\S]*?var\(--border-default\)[\s\S]*?var\(--bg-surface\)/);
 });
 
+test("subscription navigation preloads its route and cached status without blanking refreshes", () => {
+  assert.match(sidebar, /import\("\.\.\/pages\/SubscriptionStatus"\)/);
+  assert.match(sidebar, /getSubscriptionStatus\(\)\.catch/);
+  assert.match(api, /subscription-status:\$\{billingMonth \|\| "current"\}/);
+  assert.match(api, /getSubscriptionStatus[\s\S]*?cachedApiRequest/);
+  assert.match(status, /state\.loading && !state\.data/);
+  assert.match(status, /aria-busy=\{state\.loading\}/);
+  assert.doesNotMatch(status, /state\.loading \? \([\s\S]{0,160}<div className="subscription-layout">/);
+});
+
 test("financial layouts collapse safely for mobile without horizontal tables", () => {
   assert.match(theme, /@media \(max-width:\s*640px\)[\s\S]*?\.financial-summary-grid[\s\S]*?minmax\(0, 1fr\)/);
   assert.match(theme, /\.financial-card-list/);
   assert.doesNotMatch(operations, /<table/);
+});
+
+test("Paystack checkout uses hosted Mobile Money and callback verification", () => {
+  assert.match(app, /\/payments\/paystack\/callback/);
+  assert.match(checkout, /<PayAheadPanel[\s\S]*?pay_ahead_options/);
+  assert.match(payAhead, /PAY AHEAD/);
+  assert.match(payAhead, /Monthly rate/);
+  assert.match(payAhead, /Months selected/);
+  assert.match(payAhead, /options\.map/);
+  assert.match(payAhead, /option\.total/);
+  assert.match(payAhead, /formatCoverage\(selected\)/);
+  assert.match(payAhead, /initializePaystackPayment\(selected\.months\)/);
+  assert.match(payAhead, /Pay \$\{formatMoney\(selected\?\.total, currency\)\} with MoMo/);
+  assert.match(payAhead, /window\.location\.assign\(authorizationUrl\)/);
+  assert.match(payAhead, /initializationInFlight\.current/);
+  assert.match(payAhead, /Payment Failed/);
+  assert.doesNotMatch(payAhead, /<(?:input|textarea)/i);
+  assert.match(callback, /Confirming your payment securely/);
+  assert.match(callback, /verifyPaystackPayment\(reference\)/);
+  assert.match(callback, /Payment Successful/);
+  assert.match(callback, /Processing Payment/);
+  assert.match(callback, /Payment Pending/);
+  assert.match(callback, /Payment Failed/);
+  assert.match(status, /PayAheadPanel/);
+  assert.match(status, /paymentCoverage\(payment\)/);
+  assert.ok(api.includes("/payments/paystack/initialize"));
+  assert.ok(api.includes("/payments/paystack/verify"));
+  assert.doesNotMatch(api, /PAYSTACK_SECRET_KEY/);
 });
