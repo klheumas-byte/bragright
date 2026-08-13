@@ -1,35 +1,100 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import DashboardLayout from "../layouts/DashboardLayout";
 import { verifyPaystackPayment } from "../services/api";
+
+const CONFIRMATION_POLL_INTERVAL_MS = 5_000;
+const CONFIRMATION_TIMEOUT_MS = 75_000;
+const PENDING_PROVIDER_STATUSES = new Set(["pending", "ongoing", "processing", "queued"]);
+const TERMINAL_PROVIDER_STATUSES = new Set(["failed", "abandoned", "reversed"]);
 
 export default function PaystackCallback() {
   const [searchParams] = useSearchParams();
   const outerSearchParams = new URLSearchParams(window.location.search);
   const reference = searchParams.get("reference") || searchParams.get("trxref")
     || outerSearchParams.get("reference") || outerSearchParams.get("trxref") || "";
-  const [state, setState] = useState({ status: "processing", title: "Processing Payment", message: "Confirming your payment securely…", payment: null });
+  const checkStatusRef = useRef(null);
+  const [state, setState] = useState({
+    status: "processing",
+    title: "Processing Payment",
+    message: "Confirming your payment securely...",
+    payment: null,
+    checking: false,
+  });
 
   useEffect(() => {
     let active = true;
+    let pollTimer = null;
+    let requestInFlight = false;
+    const startedAt = Date.now();
+
     if (!reference) {
-      setState({ status: "error", title: "Payment Failed", message: "The payment reference is missing.", payment: null });
+      setState({ status: "error", title: "Payment Failed", message: "The payment reference is missing.", payment: null, checking: false });
       return () => { active = false; };
     }
-    verifyPaystackPayment(reference)
-      .then((response) => {
+
+    const showStillConfirming = () => setState({
+      status: "still_confirming",
+      title: "Still confirming",
+      message: "Paystack has not confirmed a final result yet. You can check again safely.",
+      payment: null,
+      checking: false,
+    });
+
+    const scheduleNextCheck = (checkPayment) => {
+      const remaining = CONFIRMATION_TIMEOUT_MS - (Date.now() - startedAt);
+      if (remaining <= 0) {
+        showStillConfirming();
+        return;
+      }
+      pollTimer = window.setTimeout(checkPayment, Math.min(CONFIRMATION_POLL_INTERVAL_MS, remaining));
+    };
+
+    const checkPayment = async ({ manual = false } = {}) => {
+      if (!active || requestInFlight) return;
+      requestInFlight = true;
+      if (manual) setState((current) => ({ ...current, checking: true }));
+
+      try {
+        const response = await verifyPaystackPayment(reference);
         if (!active) return;
         const payment = response.data?.payment;
-        if (payment?.status === "verified") {
-          setState({ status: "success", title: "Payment Successful", message: "Your subscription payment was verified.", payment });
-        } else if (["failed", "initialization_failed", "reversed"].includes(payment?.status)) {
-          setState({ status: "error", title: "Payment Failed", message: "Paystack did not complete this payment. Start a new checkout from your Subscription page.", payment: null });
+        const nextState = paymentState(payment);
+        if (nextState.status === "success" || nextState.status === "error") {
+          setState(nextState);
+        } else if (manual || Date.now() - startedAt >= CONFIRMATION_TIMEOUT_MS) {
+          showStillConfirming();
         } else {
-          setState({ status: "pending", title: "Payment Pending", message: "Your payment is still pending. We’ll update it after Paystack confirms it.", payment: null });
+          setState(nextState);
+          scheduleNextCheck(checkPayment);
         }
-      })
-      .catch((error) => active && setState({ status: "error", title: "Payment Failed", message: error.message, payment: null }));
-    return () => { active = false; };
+      } catch (error) {
+        if (!active) return;
+        if (manual || Date.now() - startedAt >= CONFIRMATION_TIMEOUT_MS) {
+          showStillConfirming();
+        } else {
+          setState({
+            status: "pending",
+            title: "Payment Pending",
+            message: "Confirmation is temporarily unavailable. BragRight will check again automatically.",
+            payment: null,
+            checking: false,
+          });
+          scheduleNextCheck(checkPayment);
+        }
+      } finally {
+        requestInFlight = false;
+      }
+    };
+
+    checkStatusRef.current = () => checkPayment({ manual: true });
+    checkPayment();
+
+    return () => {
+      active = false;
+      checkStatusRef.current = null;
+      if (pollTimer) window.clearTimeout(pollTimer);
+    };
   }, [reference]);
 
   return (
@@ -47,10 +112,43 @@ export default function PaystackCallback() {
             <div><dt>Reference</dt><dd>{state.payment.reference}</dd></div>
           </dl>
         ) : <p className="section-copy">Reference: {reference || "Unavailable"}</p>}
-        {state.status !== "processing" ? <Link className="ui-button ui-button--primary" to="/payments/status">View payment history</Link> : null}
+        {state.status === "still_confirming" ? (
+          <button
+            className="ui-button ui-button--primary"
+            type="button"
+            disabled={state.checking}
+            onClick={() => checkStatusRef.current?.()}
+          >
+            {state.checking ? "Checking..." : "Check Status"}
+          </button>
+        ) : null}
+        {state.status !== "processing" ? <Link className="ui-button ui-button--secondary" to="/payments/status">View payment history</Link> : null}
       </section>
     </DashboardLayout>
   );
+}
+
+function paymentState(payment) {
+  const providerStatus = String(payment?.provider_status || "").toLowerCase();
+  if (payment?.status === "verified" && providerStatus === "success") {
+    return { status: "success", title: "Payment Successful", message: "Your subscription payment was verified.", payment, checking: false };
+  }
+  if (payment?.status === "failed" || TERMINAL_PROVIDER_STATUSES.has(providerStatus)) {
+    const title = providerStatus === "abandoned"
+      ? "Payment Abandoned"
+      : providerStatus === "reversed"
+        ? "Payment Reversed"
+        : "Payment Failed";
+    return { status: "error", title, message: "Paystack did not complete this payment. Start a new checkout from your Subscription page.", payment: null, checking: false };
+  }
+  const pendingStatus = PENDING_PROVIDER_STATUSES.has(providerStatus) ? providerStatus : "pending";
+  return {
+    status: "pending",
+    title: "Payment Pending",
+    message: `Paystack reports this payment as ${pendingStatus}. BragRight will keep checking securely.`,
+    payment: null,
+    checking: false,
+  };
 }
 
 function formatMoney(value, currency = "GHS") {
@@ -60,7 +158,7 @@ function formatMoney(value, currency = "GHS") {
 function formatCoverage(payment) {
   const first = formatPeriod(payment?.first_covered_period || payment?.billing_month);
   const last = formatPeriod(payment?.last_covered_period || payment?.billing_month);
-  return first === last ? first : `${first} – ${last}`;
+  return first === last ? first : `${first} - ${last}`;
 }
 
 function formatPeriod(value) {

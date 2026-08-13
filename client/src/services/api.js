@@ -1092,6 +1092,7 @@ export function verifyPaystackPayment(reference) {
   const params = new URLSearchParams({ reference });
   return apiMutation(`/payments/paystack/verify?${params.toString()}`, {
     method: "GET",
+    skipNetworkRetry: true,
   });
 }
 

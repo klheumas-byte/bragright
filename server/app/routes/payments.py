@@ -686,6 +686,15 @@ def verify_paystack_payment():
     payment = get_payments_collection(config=current_app.config).find_one(payment_query)
     if not payment:
         return _error("Payment was not found.", 404, "not_found")
+    if (
+        payment.get("fulfilled_at")
+        and payment.get("status") == "verified"
+        and payment.get("provider_status") == "success"
+    ):
+        return jsonify({
+            "success": True,
+            "data": {"payment": serialize_financial_document(payment)},
+        })
     try:
         provider_data = verify_transaction(current_app.config, reference)
         updated, _ = _fulfill_verified_paystack_payment(payment, provider_data)

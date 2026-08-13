@@ -643,6 +643,34 @@ def test_callback_verifies_server_side_and_fulfills_subscription_once(
     ) == 1
 
 
+def test_callback_returns_webhook_fulfilled_payment_without_rechecking_paystack(
+    app, client, create_user, monkeypatch
+):
+    _, initialized, _, headers = initialize(client, app, create_user, monkeypatch)
+    reference = initialized.json["data"]["reference"]
+    monkeypatch.setattr(
+        "app.routes.payments.verify_transaction",
+        lambda config, value: verified_data(value),
+    )
+    webhook = signed_webhook(
+        client, {"event": "charge.success", "data": {"reference": reference}}
+    )
+    monkeypatch.setattr(
+        "app.routes.payments.verify_transaction",
+        lambda *args, **kwargs: pytest.fail("fulfilled callback must not recheck Paystack"),
+    )
+
+    callback = client.get(
+        f"/api/payments/paystack/verify?reference={reference}", headers=headers
+    )
+
+    assert webhook.status_code == 200
+    assert webhook.json["data"]["processed"] is True
+    assert callback.status_code == 200
+    assert callback.json["data"]["payment"]["status"] == "verified"
+    assert callback.json["data"]["payment"]["provider_status"] == "success"
+
+
 def test_multi_month_fulfillment_activates_every_period_without_double_extension(
     app, client, create_user, monkeypatch
 ):
@@ -893,15 +921,17 @@ def test_verification_rejects_amount_and_currency_mismatch_and_handles_terminal_
     assert mismatch.json["error"]["code"] == "AMOUNT_MISMATCH"
     assert payment["fulfilled_at"] is None
 
-    monkeypatch.setattr(
-        "app.routes.payments.verify_transaction",
-        lambda config, value: verified_data(value, status="pending"),
-    )
-    pending = client.get(
-        f"/api/payments/paystack/verify?reference={reference}", headers=headers
-    )
-    assert pending.status_code == 200
-    assert pending.json["data"]["payment"]["status"] == "paystack_initialized"
+    for nonterminal_status in ("pending", "ongoing"):
+        monkeypatch.setattr(
+            "app.routes.payments.verify_transaction",
+            lambda config, value, status=nonterminal_status: verified_data(value, status=status),
+        )
+        pending = client.get(
+            f"/api/payments/paystack/verify?reference={reference}", headers=headers
+        )
+        assert pending.status_code == 200
+        assert pending.json["data"]["payment"]["status"] == "paystack_initialized"
+        assert pending.json["data"]["payment"]["provider_status"] == nonterminal_status
 
     monkeypatch.setattr(
         "app.routes.payments.verify_transaction",

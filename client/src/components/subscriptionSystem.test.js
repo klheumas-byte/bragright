@@ -103,10 +103,17 @@ test("Paystack checkout uses hosted Mobile Money and callback verification", () 
   assert.doesNotMatch(payAhead, /<(?:input|textarea)/i);
   assert.match(callback, /Confirming your payment securely/);
   assert.match(callback, /verifyPaystackPayment\(reference\)/);
+  assert.match(callback, /CONFIRMATION_POLL_INTERVAL_MS = 5_000/);
+  assert.match(callback, /CONFIRMATION_TIMEOUT_MS = 75_000/);
   assert.match(callback, /Payment Successful/);
   assert.match(callback, /Processing Payment/);
   assert.match(callback, /Payment Pending/);
   assert.match(callback, /Payment Failed/);
+  assert.match(callback, /Payment Abandoned/);
+  assert.match(callback, /Payment Reversed/);
+  assert.match(callback, /Still confirming/);
+  assert.match(callback, /Check Status/);
+  assert.match(api, /skipNetworkRetry: true/);
   assert.match(status, /PayAheadPanel/);
   assert.match(status, /paymentCoverage\(payment\)/);
   assert.ok(api.includes("/payments/paystack/initialize"));
