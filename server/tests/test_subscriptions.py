@@ -60,8 +60,8 @@ def test_payment_officer_scope_and_super_admin_oversight(client, create_user):
 def test_admin_payment_screen_queries_load_players_and_accept_supported_filters(
     client, create_user
 ):
-    create_user("alpha-player@example.com", username="Alpha Player")
-    create_user("beta-player@example.com", username="Beta Player")
+    create_user("alpha-player@example.com", username="Alpha Player", subscription_access=False)
+    create_user("beta-player@example.com", username="Beta Player", subscription_access=False)
     create_user("admin@example.com", role="admin")
     headers = login(client, "admin@example.com")
     month = current_billing_month()
@@ -94,7 +94,7 @@ def test_admin_payment_screen_queries_load_players_and_accept_supported_filters(
 
 
 def test_subscription_unique_player_month_index(app, create_user):
-    player = create_user("player@example.com")
+    player = create_user("player@example.com", subscription_access=False)
     subscriptions = db_module.get_subscriptions_collection(config=app.config)
     first = get_or_create_subscription(app.config, str(player["_id"]), "2026-08")
     second = get_or_create_subscription(app.config, str(player["_id"]), "2026-08")
@@ -111,7 +111,7 @@ def test_subscription_unique_player_month_index(app, create_user):
 
 
 def test_billing_grace_and_restriction_are_idempotent(app, create_user):
-    player = create_user("player@example.com")
+    player = create_user("player@example.com", subscription_access=False)
     actor = {"id": "system", "username": "Billing", "role": "system"}
 
     grace = run_monthly_billing(
@@ -150,7 +150,7 @@ def test_billing_grace_and_restriction_are_idempotent(app, create_user):
 def test_record_payment_activates_and_prevents_duplicate(
     app, client, create_user
 ):
-    player = create_user("player@example.com")
+    player = create_user("player@example.com", subscription_access=False)
     officer = create_user("officer@example.com", role="payment_officer")
     headers = login(client, "officer@example.com")
 
@@ -183,8 +183,8 @@ def test_record_payment_activates_and_prevents_duplicate(
 def test_payment_officer_dashboard_uses_real_global_paid_counts_and_own_totals(
     client, create_user
 ):
-    first_player = create_user("first-player@example.com")
-    second_player = create_user("second-player@example.com")
+    first_player = create_user("first-player@example.com", subscription_access=False)
+    second_player = create_user("second-player@example.com", subscription_access=False)
     first_officer = create_user("first-officer@example.com", role="payment_officer")
     create_user("second-officer@example.com", role="payment_officer")
     first_headers = login(client, "first-officer@example.com")
@@ -219,7 +219,7 @@ def test_payment_officer_dashboard_uses_real_global_paid_counts_and_own_totals(
 def test_paid_subscription_does_not_override_banned_player_access(
     app, client, create_user
 ):
-    player = create_user("banned-player@example.com")
+    player = create_user("banned-player@example.com", subscription_access=False)
     db_module.get_users_collection(config=app.config).update_one(
         {"_id": player["_id"]},
         {"$set": {"is_banned": True}},
@@ -268,7 +268,7 @@ def test_valid_current_payment_activates_eligible_player_access(
 
 
 def test_invalid_payment_amount_does_not_activate_player(client, create_user, app):
-    player = create_user("player@example.com")
+    player = create_user("player@example.com", subscription_access=False)
     create_user("officer@example.com", role="payment_officer")
     payload = record_payload(player)
     payload["amount"] = "19.99"
@@ -294,7 +294,7 @@ def test_invalid_payment_amount_does_not_activate_player(client, create_user, ap
 def test_restricted_player_can_view_payment_but_not_dashboard(
     app, client, create_user
 ):
-    player = create_user("player@example.com")
+    player = create_user("player@example.com", subscription_access=False)
     subscription = get_or_create_subscription(
         app.config,
         str(player["_id"]),
@@ -372,7 +372,7 @@ def test_payment_and_password_route_errors_are_json(client, create_user):
 def test_remittance_cannot_exceed_balance_and_requires_super_admin_verification(
     app, client, create_user
 ):
-    player = create_user("player@example.com")
+    player = create_user("player@example.com", subscription_access=False)
     officer = create_user("collector@example.com", role="payment_officer")
     create_user("officer@example.com", role="payment_officer")
     create_user("super@example.com", role="super_admin")
@@ -425,7 +425,7 @@ def test_remittance_cannot_exceed_balance_and_requires_super_admin_verification(
 
 
 def test_remittance_rejection_requires_reason(client, create_user, app):
-    player = create_user("player@example.com")
+    player = create_user("player@example.com", subscription_access=False)
     create_user("collector@example.com", role="payment_officer")
     create_user("super@example.com", role="super_admin")
     officer_headers = login(client, "collector@example.com")
@@ -465,8 +465,8 @@ def test_remittance_rejection_requires_reason(client, create_user, app):
 def test_exemption_activates_without_fake_payment_and_reversal_preserves_record(
     app, client, create_user
 ):
-    exempt_player = create_user("exempt@example.com")
-    paid_player = create_user("paid@example.com")
+    exempt_player = create_user("exempt@example.com", subscription_access=False)
+    paid_player = create_user("paid@example.com", subscription_access=False)
     create_user("officer@example.com", role="payment_officer")
     create_user("super@example.com", role="super_admin")
     officer_headers = login(client, "officer@example.com")
@@ -509,7 +509,7 @@ def test_exemption_activates_without_fake_payment_and_reversal_preserves_record(
 
 
 def test_financial_proof_is_type_checked_and_owner_scoped(client, create_user):
-    player = create_user("player@example.com")
+    player = create_user("player@example.com", subscription_access=False)
     create_user("officer-one@example.com", role="payment_officer")
     create_user("officer-two@example.com", role="payment_officer")
     owner_headers = login(client, "officer-one@example.com")
@@ -625,7 +625,7 @@ def test_rejected_player_submission_is_preserved_and_can_be_resubmitted(
 
 
 def test_only_superadmin_can_reverse_verified_remittance(app, client, create_user):
-    player = create_user("remit-player@example.com")
+    player = create_user("remit-player@example.com", subscription_access=False)
     create_user("remit-officer@example.com", role="payment_officer")
     create_user("ordinary-admin@example.com", role="admin")
     create_user("reconcile-super@example.com", role="super_admin")

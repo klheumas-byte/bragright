@@ -53,7 +53,8 @@ test("startup applies a persisted effective theme before the application module"
 
 test("published nested routes recover through the SPA entry point", () => {
   assert.match(main, /import \{ HashRouter \} from "react-router-dom"/);
-  assert.match(main, /<HashRouter>/);
+  assert.match(main, /<HashRouter(?:\s[^>]*)?>/);
+  assert.match(main, /future=\{\{ v7_startTransition: true \}\}/);
   assert.doesNotMatch(main, /BrowserRouter/);
   assert.match(staticRedirects, /\/\*\s+\/index\.html\s+200/);
   assert.match(staticFallback, /__bragright_spa_path/);
