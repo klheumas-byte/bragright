@@ -16,6 +16,7 @@ from app.services.subscription_service import (
 
 PASSWORD = "correct-horse-battery-staple"
 SECRET = "sk_test_phase_one_secret"
+LIVE_SECRET = "sk_live_production_readiness_secret"
 
 
 def login(client, email):
@@ -109,6 +110,100 @@ def test_monthly_subscription_maps_ghs_20_to_paystack_mobile_money_payload(monke
     assert captured["payload"]["currency"] == "GHS"
     assert captured["payload"]["channels"] == ["mobile_money"]
     assert captured["payload"]["metadata"]["payment_type"] == "monthly_subscription"
+
+
+def test_live_mode_maps_ghs_20_to_mobile_money_with_public_https_callback(monkeypatch):
+    config = {
+        "PAYSTACK_PUBLIC_KEY": "pk_live_production_readiness_public",
+        "PAYSTACK_SECRET_KEY": LIVE_SECRET,
+        "PAYSTACK_CALLBACK_URL": "https://bragright.example/#/payments/paystack/callback",
+    }
+    captured = {}
+
+    def fake_request(request_config, method, path, payload=None):
+        captured.update({"method": method, "path": path, "payload": payload})
+        return {
+            "authorization_url": "https://checkout.paystack.com/authorize/live-check",
+            "reference": payload["reference"],
+        }
+
+    monkeypatch.setattr("app.services.paystack_service._request", fake_request)
+    initialize_transaction(
+        config,
+        email="payer@example.com",
+        amount_minor=2000,
+        reference="BR-PSTK-LIVE-CHECK",
+        metadata={"payment_type": "monthly_subscription"},
+    )
+
+    assert captured["method"] == "POST"
+    assert captured["path"] == "/transaction/initialize"
+    assert captured["payload"]["amount"] == 2000
+    assert captured["payload"]["currency"] == "GHS"
+    assert captured["payload"]["channels"] == ["mobile_money"]
+    assert captured["payload"]["callback_url"] == config["PAYSTACK_CALLBACK_URL"]
+
+
+@pytest.mark.parametrize(
+    ("public_key", "secret_key", "callback_url", "expected_code"),
+    [
+        (
+            "pk_test_production_readiness_public",
+            LIVE_SECRET,
+            "https://bragright.example/#/payments/paystack/callback",
+            "paystack_key_mode_mismatch",
+        ),
+        (
+            "pk_live_production_readiness_public",
+            LIVE_SECRET,
+            "http://localhost:5173/#/payments/paystack/callback",
+            "paystack_live_callback_required",
+        ),
+    ],
+)
+def test_paystack_rejects_mixed_keys_and_non_public_live_callback(
+    public_key, secret_key, callback_url, expected_code
+):
+    with pytest.raises(PaystackError) as captured:
+        initialize_transaction(
+            {
+                "PAYSTACK_PUBLIC_KEY": public_key,
+                "PAYSTACK_SECRET_KEY": secret_key,
+                "PAYSTACK_CALLBACK_URL": callback_url,
+            },
+            email="payer@example.com",
+            amount_minor=2000,
+            reference="BR-PSTK-INVALID-LIVE-CONFIG",
+            metadata={"payment_type": "monthly_subscription"},
+        )
+
+    assert captured.value.code == expected_code
+    assert public_key not in str(captured.value)
+    assert secret_key not in str(captured.value)
+
+
+def test_invalid_live_configuration_creates_no_payment_record(
+    app, client, create_user
+):
+    email = "invalid-live-config@example.com"
+    player = create_user(email, subscription_access=False)
+    app.config.update(
+        PAYSTACK_PUBLIC_KEY="pk_live_production_readiness_public",
+        PAYSTACK_SECRET_KEY=SECRET,
+        PAYSTACK_CALLBACK_URL="https://bragright.example/#/payments/paystack/callback",
+    )
+
+    response = client.post(
+        "/api/payments/paystack/initialize",
+        json={"payment_type": "monthly_subscription", "months": 1},
+        headers=login(client, email),
+    )
+
+    assert response.status_code == 503
+    assert response.json["error"]["code"] == "PAYSTACK_KEY_MODE_MISMATCH"
+    assert db_module.get_payments_collection(config=app.config).count_documents(
+        {"player_id": str(player["_id"]), "source": "paystack"}
+    ) == 0
 
 
 def test_paystack_http_request_uses_bearer_auth_and_application_user_agent(monkeypatch):
@@ -447,6 +542,79 @@ def test_unknown_initialization_outcome_rotates_only_after_provider_reports_miss
     assert retry.json["data"]["reference"] == calls[1]
 
 
+def test_restart_before_checkout_url_is_stored_reconciles_reference_before_retry(
+    app, client, create_user, monkeypatch
+):
+    _, initialized, _, headers = initialize(
+        client, app, create_user, monkeypatch, email="restart-retry@example.com"
+    )
+    reference = initialized.json["data"]["reference"]
+    payments = db_module.get_payments_collection(config=app.config)
+    payments.update_one(
+        {"paystack_reference": reference},
+        {"$set": {"status": "paystack_pending"}, "$unset": {"authorization_url": ""}},
+    )
+    verification_calls = []
+    initialization_calls = []
+
+    def provider_reports_missing(config, value):
+        verification_calls.append(value)
+        raise PaystackError("Transaction was not found.", provider_status=404)
+
+    def reinitialize(config, **payload):
+        initialization_calls.append(payload["reference"])
+        return {
+            "authorization_url": f"https://checkout.paystack.test/authorize/{payload['reference']}",
+            "access_code": "restart-retry-access",
+            "reference": payload["reference"],
+        }
+
+    monkeypatch.setattr("app.routes.payments.verify_transaction", provider_reports_missing)
+    monkeypatch.setattr("app.routes.payments.initialize_transaction", reinitialize)
+    retry = client.post(
+        "/api/payments/paystack/initialize",
+        json={"payment_type": "monthly_subscription", "months": 1},
+        headers=headers,
+    )
+
+    assert retry.status_code == 201
+    assert verification_calls == [reference]
+    assert initialization_calls == [reference]
+    assert retry.json["data"]["reference"] == reference
+
+
+def test_restart_does_not_reinitialize_reference_that_paystack_is_processing(
+    app, client, create_user, monkeypatch
+):
+    _, initialized, _, headers = initialize(
+        client, app, create_user, monkeypatch, email="restart-pending@example.com"
+    )
+    reference = initialized.json["data"]["reference"]
+    payments = db_module.get_payments_collection(config=app.config)
+    payments.update_one(
+        {"paystack_reference": reference},
+        {"$set": {"status": "paystack_pending"}, "$unset": {"authorization_url": ""}},
+    )
+    monkeypatch.setattr(
+        "app.routes.payments.verify_transaction",
+        lambda config, value: verified_data(value, status="pending"),
+    )
+    monkeypatch.setattr(
+        "app.routes.payments.initialize_transaction",
+        lambda *args, **kwargs: pytest.fail("pending reference must not be initialized twice"),
+    )
+
+    retry = client.post(
+        "/api/payments/paystack/initialize",
+        json={"payment_type": "monthly_subscription", "months": 1},
+        headers=headers,
+    )
+
+    assert retry.status_code == 409
+    assert retry.json["error"]["code"] == "PAYSTACK_INITIALIZATION_PENDING"
+    assert payments.find_one({"paystack_reference": reference})["fulfilled_at"] is None
+
+
 def test_callback_verifies_server_side_and_fulfills_subscription_once(
     app, client, create_user, monkeypatch
 ):
@@ -676,8 +844,38 @@ def test_valid_webhook_rejects_forgery_and_duplicate_fulfillment(
     assert calls == [reference]
 
 
-def test_verification_rejects_amount_and_currency_mismatch_and_keeps_pending(
+def test_live_webhook_signature_is_verified_with_live_secret(
     app, client, create_user, monkeypatch
+):
+    _, initialized, _, _ = initialize(client, app, create_user, monkeypatch)
+    reference = initialized.json["data"]["reference"]
+    db_module.get_payments_collection(config=app.config).update_one(
+        {"paystack_reference": reference},
+        {"$set": {"provider_mode": "live"}},
+    )
+    app.config.update(
+        PAYSTACK_PUBLIC_KEY="pk_live_production_readiness_public",
+        PAYSTACK_SECRET_KEY=LIVE_SECRET,
+        PAYSTACK_CALLBACK_URL="https://bragright.example/#/payments/paystack/callback",
+    )
+    monkeypatch.setattr(
+        "app.routes.payments.verify_transaction",
+        lambda config, value: verified_data(value),
+    )
+
+    response = signed_webhook(
+        client,
+        {"event": "charge.success", "data": {"reference": reference}},
+        secret=LIVE_SECRET,
+    )
+
+    assert response.status_code == 200
+    assert response.json["data"]["processed"] is True
+
+
+@pytest.mark.parametrize("terminal_status", ["failed", "abandoned", "reversed"])
+def test_verification_rejects_amount_and_currency_mismatch_and_handles_terminal_status(
+    app, client, create_user, monkeypatch, terminal_status
 ):
     _, initialized, _, headers = initialize(client, app, create_user, monkeypatch)
     reference = initialized.json["data"]["reference"]
@@ -707,13 +905,13 @@ def test_verification_rejects_amount_and_currency_mismatch_and_keeps_pending(
 
     monkeypatch.setattr(
         "app.routes.payments.verify_transaction",
-        lambda config, value: verified_data(value, status="failed"),
+        lambda config, value: verified_data(value, status=terminal_status),
     )
-    failed = client.get(
+    terminal = client.get(
         f"/api/payments/paystack/verify?reference={reference}", headers=headers
     )
-    assert failed.status_code == 200
-    assert failed.json["data"]["payment"]["status"] == "failed"
+    assert terminal.status_code == 200
+    assert terminal.json["data"]["payment"]["status"] == "failed"
 
     retry = client.post(
         "/api/payments/paystack/initialize",

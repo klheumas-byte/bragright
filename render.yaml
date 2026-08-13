@@ -19,6 +19,16 @@ services:
         sync: false
       - key: MONGODB_DATABASE
         sync: false
+      - key: PAYSTACK_PUBLIC_KEY
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_CALLBACK_URL
+        sync: false
+      - key: SUBSCRIPTION_MONTHLY_FEE_MINOR
+        value: "2000"
+      - key: SUBSCRIPTION_CURRENCY
+        value: GHS
       - key: FRONTEND_ORIGIN
         fromService:
           type: web

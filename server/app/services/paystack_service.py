@@ -1,6 +1,7 @@
+import ipaddress
 import json
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 
@@ -24,27 +25,77 @@ class PaystackError(RuntimeError):
         self.outcome_unknown = outcome_unknown
 
 
-def _test_config(config):
+def paystack_credentials(config):
     public_key = str(config.get("PAYSTACK_PUBLIC_KEY") or "").strip()
     secret_key = str(config.get("PAYSTACK_SECRET_KEY") or "").strip()
-    callback_url = str(config.get("PAYSTACK_CALLBACK_URL") or "").strip()
-    if not public_key or not secret_key or not callback_url:
+    if not public_key or not secret_key:
         raise PaystackError(
-            "Paystack test checkout is not configured.",
+            "Paystack checkout is not configured.",
             code="paystack_not_configured",
             status_code=503,
         )
-    if not public_key.startswith("pk_test_") or not secret_key.startswith("sk_test_"):
+    public_mode = next(
+        (mode for mode in ("test", "live") if public_key.startswith(f"pk_{mode}_")),
+        None,
+    )
+    secret_mode = next(
+        (mode for mode in ("test", "live") if secret_key.startswith(f"sk_{mode}_")),
+        None,
+    )
+    if not public_mode or not secret_mode:
         raise PaystackError(
-            "Only Paystack test keys are allowed in Phase 1.",
-            code="paystack_test_mode_required",
+            "Paystack keys are invalid.",
+            code="paystack_invalid_keys",
             status_code=503,
         )
-    return secret_key, callback_url
+    if public_mode != secret_mode:
+        raise PaystackError(
+            "Paystack public and secret keys must use the same environment.",
+            code="paystack_key_mode_mismatch",
+            status_code=503,
+        )
+    return secret_key, public_mode
+
+
+def paystack_config(config):
+    secret_key, mode = paystack_credentials(config)
+    callback_url = str(config.get("PAYSTACK_CALLBACK_URL") or "").strip()
+    try:
+        parsed_callback = urlsplit(callback_url)
+    except ValueError as error:
+        raise PaystackError(
+            "Paystack callback URL is invalid.",
+            code="paystack_invalid_callback_url",
+            status_code=503,
+        ) from error
+    if (
+        parsed_callback.scheme not in {"http", "https"}
+        or not parsed_callback.hostname
+        or parsed_callback.username
+        or parsed_callback.password
+    ):
+        raise PaystackError(
+            "Paystack callback URL is invalid.",
+            code="paystack_invalid_callback_url",
+            status_code=503,
+        )
+    if mode == "live":
+        hostname = parsed_callback.hostname.lower()
+        try:
+            is_loopback = ipaddress.ip_address(hostname).is_loopback
+        except ValueError:
+            is_loopback = hostname == "localhost" or hostname.endswith(".localhost")
+        if parsed_callback.scheme != "https" or is_loopback:
+            raise PaystackError(
+                "Paystack Live Mode requires a public HTTPS callback URL.",
+                code="paystack_live_callback_required",
+                status_code=503,
+            )
+    return secret_key, callback_url, mode
 
 
 def _request(config, method, path, payload=None):
-    secret_key, _ = _test_config(config)
+    secret_key, _ = paystack_credentials(config)
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = Request(
         f"{PAYSTACK_API_BASE}{path}",
@@ -85,7 +136,7 @@ def _request(config, method, path, payload=None):
 
 
 def initialize_transaction(config, *, email, amount_minor, reference, metadata):
-    _, callback_url = _test_config(config)
+    _, callback_url, _ = paystack_config(config)
     return _request(
         config,
         "POST",

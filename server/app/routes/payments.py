@@ -56,6 +56,8 @@ from ..services.subscription_service import (
 from ..services.paystack_service import (
     PaystackError,
     initialize_transaction,
+    paystack_config,
+    paystack_credentials,
     verify_transaction,
 )
 from ..services.upload_storage import get_upload_storage
@@ -254,6 +256,12 @@ def _paystack_error(error):
     return _error(str(error), error.status_code, error.code)
 
 
+def _paystack_mode_filter(mode):
+    if mode == "test":
+        return {"$or": [{"provider_mode": "test"}, {"provider_mode": {"$exists": False}}]}
+    return {"provider_mode": "live"}
+
+
 def _provider_paid_at(value, fallback):
     if not value:
         return fallback
@@ -433,15 +441,47 @@ def initialize_paystack_payment():
             422,
             "invalid_subscription_months",
         )
+    try:
+        _, _, provider_mode = paystack_config(current_app.config)
+    except PaystackError as error:
+        return _paystack_error(error)
 
     actor = _current_actor()
     payments = get_payments_collection(config=current_app.config)
-    open_payment = payments.find_one({
+    open_payment_query = {
         "player_id": actor["id"],
         "source": "paystack",
         "fulfilled_at": None,
         "status": {"$in": ["paystack_pending", "paystack_initialized", "initialization_failed"]},
-    })
+    }
+    open_payment_query.update(_paystack_mode_filter(provider_mode))
+    open_payment = payments.find_one(open_payment_query)
+    if open_payment and open_payment.get("status") == "paystack_pending":
+        # A process restart can occur after Paystack receives initialization but
+        # before its checkout URL is stored. Reconcile the durable reference
+        # before attempting initialization again.
+        try:
+            provider_data = verify_transaction(
+                current_app.config, open_payment["paystack_reference"]
+            )
+        except PaystackError as error:
+            if error.provider_status != 404:
+                return _paystack_error(error)
+        else:
+            provider_status = str(provider_data.get("status") or "").lower()
+            reconciled_payment, _ = _fulfill_verified_paystack_payment(
+                open_payment, provider_data
+            )
+            if provider_status == "success":
+                open_payment = None
+            elif provider_status in {"failed", "abandoned", "reversed"}:
+                open_payment = _rotate_failed_paystack_transaction(reconciled_payment)
+            else:
+                return _error(
+                    "Paystack is still processing this transaction. Check its status again before retrying.",
+                    409,
+                    "paystack_initialization_pending",
+                )
     if open_payment and open_payment.get("status") == "paystack_initialized":
         try:
             provider_data = verify_transaction(
@@ -518,7 +558,7 @@ def initialize_paystack_payment():
     subscription = get_or_create_subscription(current_app.config, actor["id"], month)
     amount_minor = plan["total_minor"]
     deduplication_key = (
-        f"paystack:{actor['id']}:{plan['first_covered_period']}:"
+        f"paystack:{provider_mode}:{actor['id']}:{plan['first_covered_period']}:"
         f"{plan['last_covered_period']}:monthly_subscription"
     )
     payment = open_payment or payments.find_one({"deduplication_key": deduplication_key})
@@ -548,6 +588,7 @@ def initialize_paystack_payment():
             "provider_status": "pending",
             "payment_method": "mobile_money",
             "source": "paystack",
+            "provider_mode": provider_mode,
             "recorded_by": actor["id"],
             "received_by": "paystack",
             "payment_date": None,
@@ -559,6 +600,7 @@ def initialize_paystack_payment():
                 "payment_type": payment_type,
                 "months": months,
                 "covered_periods": plan["covered_periods"],
+                "provider_mode": provider_mode,
             },
             "deduplication_key": deduplication_key,
             "created_at": now,
@@ -582,6 +624,7 @@ def initialize_paystack_payment():
         "payment_type": payment["payment_type"],
         "months": payment.get("months") or 1,
         "covered_periods": payment.get("covered_periods") or [payment["billing_month"]],
+        "provider_mode": payment.get("provider_mode") or provider_mode,
     }
     try:
         initialized = initialize_transaction(
@@ -630,9 +673,17 @@ def initialize_paystack_payment():
 @require_role("player")
 def verify_paystack_payment():
     reference = str(request.args.get("reference") or "").strip()
-    payment = get_payments_collection(config=current_app.config).find_one(
-        {"paystack_reference": reference, "player_id": str(g.current_user["_id"]), "source": "paystack"}
-    )
+    try:
+        _, provider_mode = paystack_credentials(current_app.config)
+    except PaystackError as error:
+        return _paystack_error(error)
+    payment_query = {
+        "paystack_reference": reference,
+        "player_id": str(g.current_user["_id"]),
+        "source": "paystack",
+    }
+    payment_query.update(_paystack_mode_filter(provider_mode))
+    payment = get_payments_collection(config=current_app.config).find_one(payment_query)
     if not payment:
         return _error("Payment was not found.", 404, "not_found")
     try:
@@ -647,9 +698,12 @@ def verify_paystack_payment():
 def paystack_webhook():
     raw_body = request.get_data(cache=True)
     supplied_signature = str(request.headers.get("x-paystack-signature") or "").strip().lower()
-    secret = str(current_app.config.get("PAYSTACK_SECRET_KEY") or "")
+    try:
+        secret, provider_mode = paystack_credentials(current_app.config)
+    except PaystackError as error:
+        return _paystack_error(error)
     expected_signature = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha512).hexdigest()
-    if not secret.startswith("sk_test_") or not supplied_signature or not hmac.compare_digest(supplied_signature, expected_signature):
+    if not supplied_signature or not hmac.compare_digest(supplied_signature, expected_signature):
         return _error("Webhook signature is invalid.", 401, "invalid_webhook_signature")
     event = request.get_json(silent=True)
     if not isinstance(event, dict):
@@ -657,9 +711,9 @@ def paystack_webhook():
     if event.get("event") != "charge.success":
         return jsonify({"success": True, "data": {"processed": False}})
     reference = str((event.get("data") or {}).get("reference") or "")
-    payment = get_payments_collection(config=current_app.config).find_one(
-        {"paystack_reference": reference, "source": "paystack"}
-    )
+    payment_query = {"paystack_reference": reference, "source": "paystack"}
+    payment_query.update(_paystack_mode_filter(provider_mode))
+    payment = get_payments_collection(config=current_app.config).find_one(payment_query)
     if not payment:
         return _error("Payment was not found.", 404, "not_found")
     if payment.get("fulfilled_at"):
