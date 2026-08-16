@@ -6,6 +6,7 @@ export const PLAYER_NAVIGATION_ITEMS = Object.freeze([
   { id: "leaderboard", label: "Leaderboard", icon: "leaderboard", to: "/leaderboard" },
   { id: "head-to-head", label: "Head-to-Head", icon: "compare", to: "/head-to-head" },
   { id: "my-activity", label: "My Activity", icon: "activity", to: "/activity" },
+  { id: "physical-football", label: "⚽ Physical Football", icon: "activity", to: "/physical-football" },
   { id: "subscription", label: "Subscription", icon: "activity", to: "/payments/status" },
   { id: "password", label: "Password", icon: "settings", to: "/account/password" },
 ]);
@@ -15,6 +16,7 @@ export const ADMIN_NAVIGATION_ITEMS = Object.freeze([
   { id: "admin-payments", label: "Payments", icon: "activity", to: "/admin/payments" },
   { id: "admin-users", label: "Users", icon: "users", to: "/admin/users" },
   { id: "admin-disputes", label: "Disputes", icon: "disputes", to: "/admin/disputes" },
+  { id: "physical-football", label: "⚽ Physical Football", icon: "activity", to: "/physical-football" },
   { id: "admin-activity", label: "Activity", icon: "activity", to: "/admin/activity" },
   { id: "admin-settings", label: "Settings", icon: "settings", to: "/admin/settings" },
   { id: "admin-profile", label: "My Admin Profile", icon: "adminProfile", to: "/admin/profile" },

@@ -2164,6 +2164,152 @@ html[data-theme] .match-action-header {
   background: color-mix(in srgb, var(--bg-navigation) 96%, transparent);
 }
 
+/* Physical Football follows the authoritative theme contract in both modes. */
+html[data-theme] :is(.physical-football-hero, .physical-football-layout, .physical-football-modal) {
+  color: var(--text-primary);
+}
+
+html[data-theme] .physical-football-hero {
+  border-color: var(--border-strong);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--success) 10%, transparent), transparent 45%),
+    var(--bg-surface);
+}
+
+html[data-theme] .physical-football-layout :is(.dashboard-panel, .physical-player-option, .physical-team-card, .physical-select-card, .physical-name-card, .physical-queue-card, .physical-format-summary, .physical-current-match, .physical-live-result, .physical-standings) {
+  border-color: var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+html[data-theme] .physical-history-card {
+  border-color: var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+html[data-theme] .physical-football-layout :is(.panel-title, h3, strong, dd, .physical-control-label) {
+  color: var(--text-primary);
+}
+
+html[data-theme] .physical-football-layout :is(.section-copy, small, dt) {
+  color: var(--text-secondary);
+}
+
+html[data-theme] .physical-player-option {
+  accent-color: var(--primary);
+}
+
+html[data-theme] .physical-select-card:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--bg-surface-hover);
+}
+
+html[data-theme] .physical-select-card.is-selected {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg-surface));
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+html[data-theme] .physical-select-card.is-selected .physical-select-check {
+  color: var(--primary);
+}
+
+html[data-theme] .physical-select-card:disabled:not(.is-selected) {
+  border-color: var(--border-default);
+  background: var(--bg-surface-elevated);
+  color: var(--text-disabled);
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+html[data-theme] .physical-select-card:disabled:not(.is-selected) :is(strong, small) {
+  color: var(--text-disabled);
+}
+
+html[data-theme] .physical-queue-actions button {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-color: var(--border-strong);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+}
+
+html[data-theme] .physical-queue-actions button:disabled {
+  border-color: var(--border-default);
+  background: var(--bg-surface-elevated);
+  color: var(--text-disabled);
+  opacity: 1;
+}
+
+html[data-theme] .physical-standing-row {
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
+html[data-theme] .physical-standing-row--head {
+  background: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+}
+
+html[data-theme] .physical-sticky-action {
+  border: 1px solid var(--border-default);
+  background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
+}
+
+html[data-theme] .physical-football-alert :is(strong, p) {
+  color: inherit;
+}
+
+html[data-theme] .physical-football-alert.ui-alert--success {
+  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 13%, var(--bg-surface));
+  color: var(--success);
+}
+
+html[data-theme] .physical-football-alert.ui-alert--danger {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg-surface));
+  color: var(--danger);
+}
+
+html[data-theme] .physical-football-modal {
+  border-color: var(--border-strong);
+  background: var(--bg-surface-elevated);
+}
+
+@media (max-width: 430px) {
+  html[data-theme] .physical-queue {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  html[data-theme] .physical-queue-card {
+    flex-wrap: wrap;
+  }
+
+  html[data-theme] .physical-queue-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  html[data-theme] .physical-queue-actions button {
+    flex: 1;
+  }
+
+  html[data-theme] .physical-football-modal {
+    width: 100%;
+    max-height: calc(100dvh - max(1rem, env(safe-area-inset-top)) - max(1rem, env(safe-area-inset-bottom)));
+    padding: 1rem;
+  }
+
+  html[data-theme] .physical-football-modal .ui-modal__actions {
+    position: sticky;
+    bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--bg-surface-elevated);
+  }
+}
+
 html[data-theme] .match-action-summary,
 html[data-theme] :is(.match-action-decision, .match-action-form, .match-action-result, .match-action-complete, .match-action-stale) {
   border-color: var(--border-default);

@@ -23,6 +23,7 @@ from .routes.matches import matches_bp, upload_proof
 from .routes.players import players_bp
 from .routes.profile import profile_bp
 from .routes.payments import payments_bp
+from .routes.physical_football import physical_football_bp
 from .services.api_security import (
     ErrorCode,
     api_error,
@@ -128,6 +129,7 @@ def create_app(config_class=Config):
     app.register_blueprint(profile_bp, url_prefix="/api/profile")
     app.register_blueprint(competitive_bp, url_prefix="/api")
     app.register_blueprint(payments_bp, url_prefix="/api/payments")
+    app.register_blueprint(physical_football_bp, url_prefix="/api/physical-football")
     app.add_url_rule("/api/upload", view_func=upload_proof, methods=["POST"], endpoint="upload_proof_alias")
     app.extensions["rate_limiter"] = FixedWindowRateLimiter()
 

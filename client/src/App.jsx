@@ -32,6 +32,7 @@ const SubscriptionStatus = lazyWithRouteRecovery(() => import("./pages/Subscript
 const PasswordSettings = lazyWithRouteRecovery(() => import("./pages/PasswordSettings"), "password-settings");
 const PaystackCheckout = lazyWithRouteRecovery(() => import("./pages/PaystackCheckout"), "paystack-checkout");
 const PaystackCallback = lazyWithRouteRecovery(() => import("./pages/PaystackCallback"), "paystack-callback");
+const PhysicalFootball = lazyWithRouteRecovery(() => import("./pages/PhysicalFootball"), "physical-football");
 
 export default function App() {
   return (
@@ -65,6 +66,7 @@ export default function App() {
             <Route path="/dashboard" element={<ProtectedRoute requireSubscription><Dashboard /></ProtectedRoute>} />
             <Route path="/dashboard/submit-match" element={<ProtectedRoute requireSubscription><SubmitMatch /></ProtectedRoute>} />
             <Route path="/dashboard/matches" element={<ProtectedRoute requireSubscription><MyMatches /></ProtectedRoute>} />
+            <Route path="/physical-football" element={<ProtectedRoute allowedRoles={["player", "admin", "super_admin"]} requireSubscription><PhysicalFootball /></ProtectedRoute>} />
             <Route path="/payments/status" element={<ProtectedRoute allowedRoles={["player"]}><SubscriptionStatus /></ProtectedRoute>} />
             <Route path="/payments/pay" element={<ProtectedRoute allowedRoles={["player"]}><PaystackCheckout /></ProtectedRoute>} />
             <Route path="/payments/paystack/callback" element={<ProtectedRoute allowedRoles={["player"]}><PaystackCallback /></ProtectedRoute>} />

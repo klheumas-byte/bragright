@@ -1100,6 +1100,137 @@ export function getPaymentHistory() {
   return apiRequest("/payments/history");
 }
 
+export function getCurrentPhysicalFootballSession() {
+  return apiRequest("/physical-football/sessions/current");
+}
+
+export function getPhysicalFootballSessions() {
+  return apiRequest("/physical-football/sessions");
+}
+
+export function createPhysicalFootballSession(payload) {
+  return apiMutation("/physical-football/sessions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updatePhysicalFootballSessionStatus(sessionId, status) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function updatePhysicalFootballAvailability(sessionId, status) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/availability`, {
+    method: "PUT",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function updatePhysicalFootballPlayerPool(sessionId, playerIds) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/player-pool`, {
+    method: "PUT",
+    body: JSON.stringify({ player_ids: playerIds }),
+  });
+}
+
+export function shufflePhysicalFootballTeams(sessionId, teamCount) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/teams/shuffle`, {
+    method: "POST",
+    body: JSON.stringify({ team_count: teamCount }),
+  });
+}
+
+export function savePhysicalFootballTeams(sessionId, teams) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/teams`, {
+    method: "PUT",
+    body: JSON.stringify({ teams: teams.map((team) => ({
+      id: team.id,
+      name: team.name,
+      player_ids: team.player_ids,
+    })) }),
+  });
+}
+
+export function confirmPhysicalFootballTeams(sessionId) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/teams/confirm`, {
+    method: "POST",
+  });
+}
+
+export function assignPhysicalFootballCoordinator(sessionId, playerId) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/coordinator`, {
+    method: "PATCH",
+    body: JSON.stringify({ player_id: playerId || null }),
+  });
+}
+
+export function renamePhysicalFootballTeam(sessionId, teamId, name) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/teams/${teamId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function configurePhysicalFootballLive(sessionId, payload) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/live/config`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function startPhysicalFootballLive(sessionId) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/live/start`, { method: "POST" });
+}
+
+export function recordPhysicalFootballWinnerStaysResult(sessionId, matchId, payload) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/live/matches/${matchId}/result`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function recordPhysicalFootballGoal(sessionId, payload) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/live/goals`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function reviewPhysicalFootballGoal(sessionId, eventId, payload) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/live/goals/${eventId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function correctPhysicalFootballScore(sessionId, payload) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/live/score-correction`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updatePhysicalFootballHeadToHeadScore(sessionId, payload) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/live/head-to-head/score`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updatePhysicalFootballWinnerStaysQueue(sessionId, teamIds) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/live/queue`, {
+    method: "PUT",
+    body: JSON.stringify({ team_ids: teamIds }),
+  });
+}
+
+export function endPhysicalFootballLive(sessionId) {
+  return apiMutation(`/physical-football/sessions/${sessionId}/live/end`, { method: "POST" });
+}
+
 export function getPaymentDashboard(filters = {}) {
   return financialQuery("/payments/dashboard", filters);
 }

@@ -25,6 +25,9 @@ SUBSCRIPTION_EXEMPTIONS_COLLECTION_NAME = "subscription_exemptions"
 FINANCIAL_AUDIT_LOGS_COLLECTION_NAME = "financial_audit_logs"
 NOTIFICATIONS_COLLECTION_NAME = "notifications"
 BILLING_RUNS_COLLECTION_NAME = "billing_runs"
+PHYSICAL_FOOTBALL_SESSIONS_COLLECTION_NAME = "physical_football_sessions"
+PHYSICAL_FOOTBALL_AVAILABILITY_COLLECTION_NAME = "physical_football_availability"
+PHYSICAL_FOOTBALL_TEAMS_COLLECTION_NAME = "physical_football_teams"
 
 _env_loaded = False
 _mongo_client = None
@@ -363,6 +366,18 @@ def get_billing_runs_collection(config=None, logger=None):
     return get_db(config=config, logger=logger)[BILLING_RUNS_COLLECTION_NAME]
 
 
+def get_physical_football_sessions_collection(config=None, logger=None):
+    return get_db(config=config, logger=logger)[PHYSICAL_FOOTBALL_SESSIONS_COLLECTION_NAME]
+
+
+def get_physical_football_availability_collection(config=None, logger=None):
+    return get_db(config=config, logger=logger)[PHYSICAL_FOOTBALL_AVAILABILITY_COLLECTION_NAME]
+
+
+def get_physical_football_teams_collection(config=None, logger=None):
+    return get_db(config=config, logger=logger)[PHYSICAL_FOOTBALL_TEAMS_COLLECTION_NAME]
+
+
 def ensure_auth_sessions_indexes(auth_sessions_collection):
     auth_sessions_collection.create_index(
         "session_id", unique=True, name="sessions_id_unique"
@@ -454,6 +469,28 @@ def ensure_subscription_indexes(db):
     )
 
 
+def ensure_physical_football_indexes(db):
+    db[PHYSICAL_FOOTBALL_SESSIONS_COLLECTION_NAME].create_index(
+        "session_date", unique=True, name="physical_football_session_date_unique"
+    )
+    db[PHYSICAL_FOOTBALL_SESSIONS_COLLECTION_NAME].create_index(
+        [("status", ASCENDING), ("session_date", ASCENDING)],
+        name="physical_football_status_date",
+    )
+    db[PHYSICAL_FOOTBALL_AVAILABILITY_COLLECTION_NAME].create_index(
+        [("session_id", ASCENDING), ("player_id", ASCENDING)],
+        unique=True,
+        name="physical_football_availability_session_player_unique",
+    )
+    db[PHYSICAL_FOOTBALL_AVAILABILITY_COLLECTION_NAME].create_index(
+        [("session_id", ASCENDING), ("status", ASCENDING)],
+        name="physical_football_availability_session_status",
+    )
+    db[PHYSICAL_FOOTBALL_TEAMS_COLLECTION_NAME].create_index(
+        "team_id", unique=True, name="physical_football_team_id_unique"
+    )
+
+
 def ensure_database_indexes(config=None, logger=None):
     """Create all application indexes during process startup, never per request."""
     db = get_db(config=config, logger=logger)
@@ -465,6 +502,7 @@ def ensure_database_indexes(config=None, logger=None):
     ensure_auth_sessions_indexes(db[AUTH_SESSIONS_COLLECTION_NAME])
     ensure_proof_uploads_indexes(db[PROOF_UPLOADS_COLLECTION_NAME])
     ensure_subscription_indexes(db)
+    ensure_physical_football_indexes(db)
     (logger or LOGGER).info("MongoDB indexes initialized.")
 
 
