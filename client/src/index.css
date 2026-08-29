@@ -3444,6 +3444,39 @@ a {
   gap: 12px;
 }
 
+.leaderboard-reigns-card,
+.leaderboard-reign-current {
+  display: grid;
+  gap: 1rem;
+}
+
+.leaderboard-reign-current {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.leaderboard-reign-list {
+  display: grid;
+  gap: .5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.leaderboard-reign-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 1rem;
+  align-items: center;
+  padding: .75rem;
+  border-radius: .7rem;
+  background: var(--surface-soft);
+}
+
+.leaderboard-reign-list time {
+  color: var(--text-muted);
+}
+
 .leaderboard-entry-card {
   display: grid;
   grid-template-columns: 72px minmax(240px, 1.5fr) minmax(190px, 0.8fr) auto;
@@ -4389,6 +4422,12 @@ a {
   .leaderboard-controls,
   .leaderboard-entry-card {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .leaderboard-reign-current,
+  .leaderboard-reign-list li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: .35rem;
   }
 
   .leaderboard-current-card > .ui-button,

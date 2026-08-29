@@ -1022,6 +1022,18 @@ export function forfeitMatch(matchId, payload = {}) {
   });
 }
 
+export function getLeaderboardReigns(options = {}) {
+  return cachedApiRequest("/leaderboard/reigns", {
+    cacheKey: "leaderboard-reigns",
+    ttlMs: 30_000,
+    forceRefresh: options.forceRefresh,
+  });
+}
+
+export function restartMatch(matchId, payload = {}) {
+  return apiMutation(`/matches/${matchId}/restart`, { method: "POST", body: JSON.stringify(payload) });
+}
+
 export function cancelMatch(matchId) {
   return apiMutation(`/matches/${matchId}/cancel`, {
     method: "POST",

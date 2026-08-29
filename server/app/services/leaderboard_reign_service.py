@@ -37,7 +37,9 @@ def refresh_reigns(config, logger=None):
     collection = get_leaderboard_reigns_collection(config=config, logger=logger)
     collection.delete_many({"position": 1})
     if reigns:
-        collection.insert_many(reigns)
+        # PyMongo mutates inserted dictionaries by attaching ObjectIds. Persist
+        # copies so the deterministic domain records remain safe to serialize.
+        collection.insert_many([dict(reign) for reign in reigns])
     return reigns
 
 

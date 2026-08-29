@@ -16,12 +16,14 @@ import { Badge, Button, Card, EmptyState, Field, PageSection, Select } from "../
 import { useAuth } from "../context/AuthContext";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
-import { getLeaderboard } from "../services/api";
+import { getLeaderboard, getLeaderboardReigns } from "../services/api";
 import {
   canChallengeLeaderboardPlayer,
   EMPTY_LEADERBOARD_PAGINATION,
+  formatReignDuration,
   isCurrentLeaderboardPlayer,
   normalizeLeaderboardResponse,
+  normalizeLeaderboardReigns,
   normalizeLeaderboardSearch,
 } from "./leaderboardViewModel";
 
@@ -58,6 +60,9 @@ export default function Leaderboard() {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [reigns, setReigns] = useState({ current: null, reigns: [], totalSecondsByPlayer: {} });
+  const [reignsLoading, setReignsLoading] = useState(true);
+  const [reignsError, setReignsError] = useState("");
 
   useEffect(() => {
     mountedRef.current = true;
@@ -79,6 +84,22 @@ export default function Leaderboard() {
   useEffect(() => {
     loadLeaderboard();
   }, [pagination.page, search, user?.id, category]);
+
+  useEffect(() => {
+    loadReigns();
+  }, []);
+
+  async function loadReigns({ forceRefresh = false } = {}) {
+    setReignsLoading(true); setReignsError("");
+    try {
+      const response = await getLeaderboardReigns({ forceRefresh });
+      if (mountedRef.current) setReigns(normalizeLeaderboardReigns(response?.data));
+    } catch (error) {
+      if (mountedRef.current) setReignsError(error.message || "Top-spot history could not be loaded.");
+    } finally {
+      if (mountedRef.current) setReignsLoading(false);
+    }
+  }
 
   async function loadLeaderboard({ forceRefresh = false } = {}) {
     const requestId = ++requestIdRef.current;
@@ -250,6 +271,45 @@ export default function Leaderboard() {
           </Button>
         </Card>
       )}
+
+      <PageSection
+        title="Top-spot history"
+        description="Every change at number one, reconstructed from confirmed results."
+      >
+        <ErrorState
+          message={reignsError}
+          onRetry={() => loadReigns({ forceRefresh: true })}
+          retryLabel="Retry top-spot history"
+        />
+        {reignsLoading ? (
+          <Card variant="information" className="leaderboard-reigns-card" aria-busy="true">
+            <p>Loading verified reign history...</p>
+          </Card>
+        ) : reigns.current ? (
+          <Card variant="dashboard" className="leaderboard-reigns-card">
+            <div className="leaderboard-reign-current">
+              <Badge tone="success">Current #1</Badge>
+              <PlayerIdentity player={reigns.current.player} variant="compact" showUsername={false} />
+              <strong>{formatReignDuration(reigns.current.durationSeconds)} in this reign</strong>
+            </div>
+            <ol className="leaderboard-reign-list" aria-label="Most recent number-one reigns">
+              {[...reigns.reigns].reverse().slice(0, 8).map((reign, index) => (
+                <li key={`${reign.playerId}-${reign.startedAt || index}`}>
+                  <span>{reign.player.username}</span>
+                  <strong>{formatReignDuration(reign.durationSeconds)}</strong>
+                  <time dateTime={reign.startedAt || undefined}>
+                    {reign.startedAt ? new Date(reign.startedAt).toLocaleDateString() : "Date unavailable"}
+                  </time>
+                </li>
+              ))}
+            </ol>
+          </Card>
+        ) : reignsError ? null : (
+          <Card variant="empty" className="dashboard-panel">
+            <EmptyState title="No reign history yet" description="The first confirmed result will establish the initial number-one player." />
+          </Card>
+        )}
+      </PageSection>
 
       <PageSection
         title={CATEGORY_LABELS[category]}

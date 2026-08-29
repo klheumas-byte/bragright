@@ -14,6 +14,7 @@ const matches = readFileSync(new URL("./MyMatches.jsx", import.meta.url), "utf8"
 const navigation = readFileSync(new URL("../components/sidebarNavigation.js", import.meta.url), "utf8");
 const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
 const premiumCss = readFileSync(new URL("../styles/premium-theme.css", import.meta.url), "utf8");
+const api = readFileSync(new URL("../services/api.js", import.meta.url), "utf8");
 
 test("challenge creation redirects to a focused sent state", () => {
   assert.match(submit, /navigate\(`\/matches\/\$\{createdMatch\.id\}\/sent`/);
@@ -28,6 +29,16 @@ test("result entry requires review and confirmation shows the exact score", () =
   assert.match(action, /Once confirmed, this result may affect rankings and statistics/);
   assert.match(app, /\/matches\/:matchId\/result\/submit/);
   assert.match(app, /\/matches\/:matchId\/result\/confirm/);
+});
+
+test("active matches expose score-preserving quit and mutual restart controls", () => {
+  assert.match(action, /forfeitMatch\(matchId/);
+  assert.match(action, /The actual score is retained/);
+  assert.match(action, /Request restart/);
+  assert.match(action, /Agree and restart/);
+  assert.match(action, /Decline restart/);
+  assert.match(action, /match\.can_respond_restart/);
+  assert.match(api, /`\/matches\/\$\{matchId\}\/restart`/);
 });
 
 test("accepting a match always advances to the result phase", () => {

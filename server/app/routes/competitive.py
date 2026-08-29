@@ -16,10 +16,30 @@ from ..services.statistics_service import (
     SUPPORTED_SCOPES,
     build_player_statistics,
 )
+from ..services.leaderboard_reign_service import refresh_reigns, reign_summary
 from ..services.api_security import api_error, pagination_metadata, parse_bounded_int_query
 
 
 competitive_bp = Blueprint("competitive", __name__)
+
+
+@competitive_bp.get("/leaderboard/reigns")
+def get_leaderboard_reigns():
+    """Expose only deterministic history reconstructed from confirmed records."""
+    try:
+        reigns = refresh_reigns(current_app.config, current_app.logger)
+        users = get_users_collection(config=current_app.config, logger=current_app.logger)
+        names = {str(user["_id"]): user.get("username") or "Player" for user in users.find({}, {"username": 1})}
+        summary = reign_summary(reigns)
+        for reign in summary["reigns"]:
+            reign["player"] = {"id": reign["player_id"], "username": names.get(reign["player_id"], "Unavailable player")}
+            for key in ("previous_leader_id", "next_leader_id"):
+                if reign.get(key):
+                    reign[key.replace("_id", "")] = {"id": reign[key], "username": names.get(reign[key], "Unavailable player")}
+        return jsonify({"success": True, "message": "Leaderboard reign history loaded.", "data": summary}), 200
+    except (PyMongoError, RuntimeError):
+        current_app.logger.exception("Could not load leaderboard reign history")
+        return api_error("Could not load leaderboard reign history.", 500)
 
 
 @competitive_bp.get("/leaderboard")

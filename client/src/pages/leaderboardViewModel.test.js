@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   canChallengeLeaderboardPlayer,
+  formatReignDuration,
   isCurrentLeaderboardPlayer,
   normalizeLeaderboardResponse,
+  normalizeLeaderboardReigns,
   normalizeLeaderboardSearch,
 } from "./leaderboardViewModel.js";
+
+const leaderboardPage = readFileSync(new URL("./Leaderboard.jsx", import.meta.url), "utf8");
 
 test("leaderboard normalization preserves official backend order and absolute ranks", () => {
   const result = normalizeLeaderboardResponse({
@@ -49,4 +54,24 @@ test("fewer than three top players remain valid", () => {
     top_players: [{ id: "only", rank: 1 }],
   });
   assert.equal(result.topPlayers.length, 1);
+});
+
+test("verified reign history normalizes players and readable durations", () => {
+  const result = normalizeLeaderboardReigns({
+    current: { player_id: "a", player: { id: "a", username: "Alpha" }, duration_seconds: 172800 },
+    reigns: [{ player_id: "a", player: { id: "a", username: "Alpha" }, duration_seconds: 172800 }],
+    total_seconds_by_player: { a: 172800 },
+  });
+  assert.equal(result.current.player.username, "Alpha");
+  assert.equal(result.totalSecondsByPlayer.a, 172800);
+  assert.equal(formatReignDuration(result.current.durationSeconds), "2 days");
+  assert.equal(formatReignDuration(3600), "1 hour");
+});
+
+test("leaderboard displays backend-confirmed top-spot history with retry and empty states", () => {
+  assert.match(leaderboardPage, /getLeaderboardReigns/);
+  assert.match(leaderboardPage, /Top-spot history/);
+  assert.match(leaderboardPage, /Current #1/);
+  assert.match(leaderboardPage, /Retry top-spot history/);
+  assert.match(leaderboardPage, /No reign history yet/);
 });

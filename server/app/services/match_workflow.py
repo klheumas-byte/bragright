@@ -388,6 +388,19 @@ def serialize_match(
         and status in {MATCH_STATUS_MATCH_REQUESTED, MATCH_STATUS_SCHEDULED, MATCH_STATUS_PENDING_RESULT}
     )
     can_forfeit = include_actions and user_is_player and status == MATCH_STATUS_PENDING_RESULT and bool(match_document.get("accepted_at"))
+    restart_requested_by = match_document.get("restart_requested_by")
+    restart_available = (
+        include_actions
+        and user_is_player
+        and status == MATCH_STATUS_PENDING_RESULT
+        and match_document.get("result_type") != "forfeit"
+    )
+    can_request_restart = restart_available and not restart_requested_by
+    can_respond_restart = (
+        restart_available
+        and bool(restart_requested_by)
+        and restart_requested_by != current_user_id
+    )
 
     return {
         "id": str(match_document["_id"]),
@@ -421,6 +434,14 @@ def serialize_match(
         "player_two_score": raw_player_two_score,
         "winner_id": winner_id,
         "result_type": match_document.get("result_type") or "normal",
+        "restart_requested_by": restart_requested_by,
+        "restart_requested_at": serialize_datetime(match_document.get("restart_requested_at")),
+        "restart_reason": match_document.get("restart_reason") or "",
+        "restart_of": match_document.get("restart_of"),
+        "superseded_by": match_document.get("superseded_by"),
+        "restart_requested_by_current_user": bool(
+            restart_requested_by and restart_requested_by == current_user_id
+        ),
         "quit_by": match_document.get("quit_by"),
         "quit_reason": match_document.get("quit_reason"),
         "ranking_points": match_document.get("ranking_points") or {},
@@ -451,6 +472,7 @@ def serialize_match(
         "disputed_at": serialize_datetime(match_document.get("disputed_at")),
         "reviewed_at": serialize_datetime(match_document.get("reviewed_at")),
         "cancelled_at": serialize_datetime(match_document.get("cancelled_at")),
+        "abandoned_at": serialize_datetime(match_document.get("abandoned_at")),
         "expired_at": serialize_datetime(match_document.get("expired_at")),
         "updated_at": serialize_datetime(match_document.get("updated_at")),
         "opponent": {
@@ -466,6 +488,8 @@ def serialize_match(
         "current_user_role": participant_role,
         "current_user_score": current_user_score,
         "can_forfeit": can_forfeit,
+        "can_request_restart": can_request_restart,
+        "can_respond_restart": can_respond_restart,
         "opponent_score": opponent_score,
         "score_line": build_score_line(current_user_score, opponent_score),
         "result": result,

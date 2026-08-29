@@ -1005,6 +1005,55 @@ def forfeit_match(match_id):
         return _json_error("Could not record the forfeit.", 500)
 
 
+@matches_bp.post("/<match_id>/restart")
+@require_player
+def restart_match(match_id):
+    """A restart requires both players; a quitter cannot use it to erase a loss."""
+    try:
+        current_user, auth_error, auth_status = _load_current_user()
+        if auth_error:
+            return auth_error, auth_status
+        match, matches, load_error = _load_match(match_id)
+        if load_error:
+            return load_error
+        actor_id = str(current_user["_id"])
+        membership_error = _ensure_user_in_match(match, actor_id)
+        if membership_error:
+            return membership_error
+        if resolve_actionable_status(match) != MATCH_STATUS_PENDING_RESULT or match.get("result_type") == "forfeit":
+            return _json_error("Only an active non-forfeit match can be restarted by agreement.", 400)
+        payload, body_error = get_json_object(allowed_fields={"action", "reason"})
+        if body_error:
+            return body_error
+        action = str(payload.get("action") or "request").strip().lower()
+        reason = str(payload.get("reason") or "").strip()
+        if action not in {"request", "agree", "decline"} or len(reason) > 500:
+            return _json_error("Restart request is invalid.", 400)
+        requested_by = match.get("restart_requested_by")
+        now = now_utc()
+        if action == "request":
+            if requested_by and requested_by != actor_id:
+                return _json_error("A restart request is already awaiting your response.", 409)
+            matches.update_one({"_id": match["_id"], "status": match.get("status")}, {"$set": {"restart_requested_by": actor_id, "restart_requested_at": now, "restart_reason": reason or None, "updated_at": now}, "$push": {"result_history": {"event": "restart_requested", "actor_id": actor_id, "at": now, "reason": reason or None}}})
+            record_activity(user=serialize_user(current_user), action_type="restart_requested", action_label="Restart requested", details={"match_id": str(match["_id"]), "reason": reason})
+            return jsonify({"success": True, "message": "Restart request sent; it needs your opponent's agreement."}), 200
+        if not requested_by or requested_by == actor_id:
+            return _json_error("Only the other player can respond to this restart request.", 403)
+        if action == "decline":
+            matches.update_one({"_id": match["_id"]}, {"$set": {"restart_requested_by": None, "restart_requested_at": None, "updated_at": now}, "$push": {"result_history": {"event": "restart_declined", "actor_id": actor_id, "at": now}}})
+            return jsonify({"success": True, "message": "Restart request declined; the active match continues."}), 200
+        players = resolve_match_players(match)
+        replacement = {key: match.get(key) for key in ("player_one_id", "player_two_id", "player_one_name", "player_two_name", "created_by", "requested_to", "game", "match_type", "request_message")}
+        replacement.update({"status": MATCH_STATUS_MATCH_REQUESTED, "previous_status": None, "accepted_at": None, "accepted_by": None, "player_one_score": None, "player_two_score": None, "winner_id": None, "result_type": "normal", "created_at": now, "updated_at": now, "restart_of": str(match["_id"])})
+        new_id = matches.insert_one(replacement).inserted_id
+        matches.update_one({"_id": match["_id"]}, {"$set": {"previous_status": match.get("status"), "status": MATCH_STATUS_CANCELLED, "result_type": "abandoned", "abandoned_at": now, "updated_at": now, "superseded_by": str(new_id)}, "$push": {"result_history": {"event": "restart_agreed", "actor_id": actor_id, "at": now, "replacement_match_id": str(new_id)}}})
+        record_activity(user=serialize_user(current_user), action_type="restart_agreed", action_label="Restart agreed", details={"match_id": str(match["_id"]), "replacement_match_id": str(new_id)})
+        return jsonify({"success": True, "message": "Restart agreed. A new match request was created with no forfeit points.", "data": serialize_match(matches.find_one({"_id": new_id}), actor_id)}), 201
+    except PyMongoError:
+        current_app.logger.exception("Could not process restart request")
+        return _json_error("Could not process the restart request.", 500)
+
+
 @matches_bp.post("/<match_id>/accept")
 @require_player
 def accept_match(match_id):

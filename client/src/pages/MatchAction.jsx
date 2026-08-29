@@ -11,7 +11,9 @@ import {
   confirmMatch,
   declineMatch,
   disputeMatch,
+  forfeitMatch,
   getMatchDetail,
+  restartMatch,
   submitMatchResult,
   uploadMatchProof,
 } from "../services/api";
@@ -48,6 +50,10 @@ export default function MatchAction({ mode }) {
   const [proof, setProof] = useState(null);
   const [proofPreview, setProofPreview] = useState("");
   const [reviewing, setReviewing] = useState(false);
+  const [quitting, setQuitting] = useState(false);
+  const [restartReason, setRestartReason] = useState("");
+  const [restartNotice, setRestartNotice] = useState("");
+  const [completionMatchId, setCompletionMatchId] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [rejection, setRejection] = useState({
@@ -167,6 +173,41 @@ export default function MatchAction({ mode }) {
     }
   }
 
+  async function confirmQuit() {
+    const scoreError = validateMatchScores(scores.mine, scores.opponent);
+    if (scoreError) { setError("Enter the current score before quitting."); return; }
+    if (!window.confirm(`Quit at ${scores.mine}–${scores.opponent}? The score remains unchanged. You get 0 points and ${orientation.opponent} gets 4.`)) return;
+    const mine = Number(scores.mine), opponent = Number(scores.opponent);
+    const response = await runMutation(() => forfeitMatch(matchId, { player_one_score: orientation.isOne ? mine : opponent, player_two_score: orientation.isOne ? opponent : mine, confirmed: true }), "Forfeit confirmed. Actual score preserved.");
+    if (response) setQuitting(false);
+  }
+
+  async function handleRestart(action) {
+    if (busy) return;
+    if (action === "agree" && !window.confirm("Agree to restart? This match will be abandoned and replaced without awarding forfeit points.")) return;
+    setBusy(true); setError(""); setRestartNotice("");
+    try {
+      const response = await restartMatch(matchId, {
+        action,
+        reason: action === "request" ? restartReason.trim() : undefined,
+      });
+      if (action === "agree" && response.data) {
+        setMatch(response.data);
+        setCompletionMatchId(response.data.id);
+        setSuccess(response.message || "Restart agreed. A replacement match was created.");
+        return;
+      }
+      setRestartNotice(response.message || `Restart request ${action === "decline" ? "declined" : "sent"}.`);
+      setRestartReason("");
+      await loadMatch();
+    } catch (restartError) {
+      setError(restartError.message || "The restart request could not be processed.");
+      await loadMatch();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function rejectResult() {
     if (!rejection.reason || !rejection.explanation.trim()) {
       setError("Choose a rejection reason and explain what is incorrect.");
@@ -219,7 +260,7 @@ export default function MatchAction({ mode }) {
   let actions;
   if (success) {
     content = <Completion message={success} match={match} />;
-    actions = <><Button as={Link} to={`/dashboard/matches?matchId=${matchId}`} variant="primary">Open match</Button><Button as={Link} to="/dashboard/matches" variant="secondary">Return to matches</Button></>;
+    actions = <><Button as={Link} to={`/dashboard/matches?matchId=${encodeURIComponent(completionMatchId || matchId)}`} variant="primary">Open match</Button><Button as={Link} to="/dashboard/matches" variant="secondary">Return to matches</Button></>;
   } else if (activeMode === "sent") {
     content = <Card variant="dashboard" className="match-action-decision"><h2>{match.status_message}</h2><p>The opponent must respond before a result can be entered.</p></Card>;
     actions = <Button as={Link} to="/dashboard/matches" variant="primary">Return to matches</Button>;
@@ -231,8 +272,8 @@ export default function MatchAction({ mode }) {
     actions = stale ? <Button as={Link} to="/dashboard/matches" variant="primary">Return to matches</Button> : declining ? <><Button variant="ghost" disabled={busy} onClick={() => setDeclining(false)}>Back</Button><Button variant="danger" isLoading={busy} loadingText="Declining…" onClick={declineRequest}>Decline match</Button></> : <><Button variant="ghost" disabled={busy} onClick={() => setDeclining(true)}>Decline</Button><Button variant="primary" isLoading={busy} loadingText="Accepting…" onClick={accept}>{alreadyPlayed ? "Accept and Enter Result" : "Accept Match"}</Button></>;
   } else if (activeMode === "submit") {
     const stale = !match.can_submit_result;
-    content = stale ? <StaleState match={match} /> : reviewing ? <ResultReview match={match} scores={scores} orientation={orientation} playedAt={playedAt} proofPreview={proofPreview} /> : <ResultForm scores={scores} setScores={setScores} playedAt={playedAt} setPlayedAt={setPlayedAt} proof={proof} setProof={setProof} proofPreview={proofPreview} onSubmit={reviewResult} orientation={orientation} busy={busy} />;
-    actions = stale ? <Button as={Link} to="/dashboard/matches" variant="primary">Return to matches</Button> : reviewing ? <><Button variant="ghost" disabled={busy} onClick={() => setReviewing(false)}>Edit Result</Button><Button variant="primary" isLoading={busy} loadingText="Submitting…" onClick={submitResult}>Submit Result</Button></> : <Button type="submit" form="focused-result-form" variant="primary">Review Result</Button>;
+    content = stale ? <StaleState match={match} /> : quitting ? <Card variant="dashboard" className="match-action-result"><p className="panel-kicker">Quit confirmation</p><h2>Confirm the current score</h2><p>The actual score is retained. You receive 0 points and {orientation.opponent} receives 4.</p><div className="match-action-score-inputs"><Field label={`${orientation.mine} score`} type="number" inputMode="numeric" min="0" value={scores.mine} onChange={(event) => setScores({ ...scores, mine: event.target.value })} /><Field label={`${orientation.opponent} score`} type="number" inputMode="numeric" min="0" value={scores.opponent} onChange={(event) => setScores({ ...scores, opponent: event.target.value })} /></div></Card> : reviewing ? <ResultReview match={match} scores={scores} orientation={orientation} playedAt={playedAt} proofPreview={proofPreview} /> : <><RestartPanel match={match} reason={restartReason} setReason={setRestartReason} notice={restartNotice} busy={busy} onAction={handleRestart} /><ResultForm scores={scores} setScores={setScores} playedAt={playedAt} setPlayedAt={setPlayedAt} proof={proof} setProof={setProof} proofPreview={proofPreview} onSubmit={reviewResult} orientation={orientation} busy={busy} /></>;
+    actions = stale ? <Button as={Link} to="/dashboard/matches" variant="primary">Return to matches</Button> : quitting ? <><Button variant="ghost" disabled={busy} onClick={() => setQuitting(false)}>Back</Button><Button variant="danger" isLoading={busy} onClick={confirmQuit}>Confirm Quit</Button></> : reviewing ? <><Button variant="ghost" disabled={busy} onClick={() => setReviewing(false)}>Edit Result</Button><Button variant="primary" isLoading={busy} loadingText="Submitting…" onClick={submitResult}>Submit Result</Button></> : <><Button variant="danger" disabled={!match.can_forfeit || busy} onClick={() => setQuitting(true)}>Quit Match</Button><Button type="submit" form="focused-result-form" variant="primary">Review Result</Button></>;
   } else {
     const stale = !match.can_confirm;
     content = stale ? <StaleState match={match} /> : rejecting ? <RejectionForm value={rejection} onChange={setRejection} orientation={orientation} /> : <ConfirmationView match={match} confirming={confirming} />;
@@ -240,6 +281,11 @@ export default function MatchAction({ mode }) {
   }
 
   return <MatchActionLayout title={title} instruction={instructionFor(activeMode, reviewing, confirming)} match={match} actions={actions}><ErrorState message={error} onRetry={loadMatch} retryLabel="Refresh match" />{content}</MatchActionLayout>;
+}
+
+function RestartPanel({ match, reason, setReason, notice, busy, onAction }) {
+  if (!match.can_request_restart && !match.can_respond_restart && !match.restart_requested_by_current_user) return null;
+  return <Card variant="information" className="match-action-restart"><p className="panel-kicker">Restart by agreement</p>{notice ? <p role="status">{notice}</p> : null}{match.can_respond_restart ? <><h2>Your opponent requested a restart</h2><p>{match.restart_reason || "No reason was provided."}</p>{match.restart_requested_at ? <p>Requested <ActionTime value={match.restart_requested_at} /></p> : null}<div className="match-action-row"><Button variant="danger" disabled={busy} onClick={() => onAction("decline")}>Decline restart</Button><Button variant="primary" disabled={busy} onClick={() => onAction("agree")}>Agree and restart</Button></div></> : match.restart_requested_by_current_user ? <><h2>Restart request pending</h2><p>Your opponent must agree before this match can be replaced. Keep playing unless they accept.</p></> : <><h2>Need to start this match again?</h2><p>A restart only happens when your opponent agrees. No forfeit points are awarded.</p><Field control={Textarea} label="Optional restart reason" rows="2" maxLength="500" value={reason} onChange={(event) => setReason(event.target.value)} /><Button variant="secondary" disabled={busy} onClick={() => onAction("request")}>Request restart</Button></>}</Card>;
 }
 
 function ResultForm({ scores, setScores, playedAt, setPlayedAt, proof, setProof, proofPreview, onSubmit, orientation, busy }) {

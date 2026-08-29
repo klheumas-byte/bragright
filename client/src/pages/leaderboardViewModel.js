@@ -79,6 +79,43 @@ export function normalizeLeaderboardSearch(value) {
   return String(value || "").trim().replace(/\s+/g, " ").slice(0, 64);
 }
 
+export function normalizeLeaderboardReigns(data) {
+  const source = data || {};
+  const reigns = Array.isArray(source.reigns) ? source.reigns.map(normalizeReign) : [];
+  return {
+    current: source.current ? normalizeReign(source.current) : null,
+    reigns,
+    totalSecondsByPlayer: Object.fromEntries(
+      Object.entries(source.total_seconds_by_player || {}).map(([id, seconds]) => [id, toCount(seconds)])
+    ),
+  };
+}
+
+export function formatReignDuration(value) {
+  const seconds = toCount(value);
+  const days = Math.floor(seconds / 86400);
+  if (days) return `${days} ${days === 1 ? "day" : "days"}`;
+  const hours = Math.floor(seconds / 3600);
+  if (hours) return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+}
+
+function normalizeReign(reign) {
+  return {
+    playerId: String(reign?.player_id || ""),
+    player: {
+      id: String(reign?.player?.id || reign?.player_id || ""),
+      username: String(reign?.player?.username || "Player"),
+    },
+    previousLeader: reign?.previous_leader || null,
+    nextLeader: reign?.next_leader || null,
+    startedAt: reign?.started_at || null,
+    endedAt: reign?.ended_at || null,
+    durationSeconds: toCount(reign?.duration_seconds),
+  };
+}
+
 function toCount(value) {
   const count = Number(value);
   return Number.isFinite(count) && count > 0 ? count : 0;
