@@ -318,15 +318,16 @@ def _apply_match_to_stats(stats_by_player, match):
         opponent_player["points"] += POINTS_FOR_DRAW
         return
 
+    points_for_win = 4 if str(match.get("result_type") or "").lower() == "forfeit" else POINTS_FOR_WIN
     if winner_id == submitted_by:
         submitted_player["wins"] += 1
-        submitted_player["points"] += POINTS_FOR_WIN
+        submitted_player["points"] += points_for_win
         opponent_player["losses"] += 1
         return
 
     if winner_id == opponent_id:
         opponent_player["wins"] += 1
-        opponent_player["points"] += POINTS_FOR_WIN
+        opponent_player["points"] += points_for_win
         submitted_player["losses"] += 1
 
 

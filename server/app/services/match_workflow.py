@@ -387,6 +387,7 @@ def serialize_match(
         and user_is_player
         and status in {MATCH_STATUS_MATCH_REQUESTED, MATCH_STATUS_SCHEDULED, MATCH_STATUS_PENDING_RESULT}
     )
+    can_forfeit = include_actions and user_is_player and status == MATCH_STATUS_PENDING_RESULT and bool(match_document.get("accepted_at"))
 
     return {
         "id": str(match_document["_id"]),
@@ -419,6 +420,11 @@ def serialize_match(
         "player_one_score": raw_player_one_score,
         "player_two_score": raw_player_two_score,
         "winner_id": winner_id,
+        "result_type": match_document.get("result_type") or "normal",
+        "quit_by": match_document.get("quit_by"),
+        "quit_reason": match_document.get("quit_reason"),
+        "ranking_points": match_document.get("ranking_points") or {},
+        "result_history": match_document.get("result_history") or [],
         "result_source": match_document.get("result_source") or MATCH_RESULT_SOURCE_PLAYER,
         "proof_image_url": match_document.get("proof_image_url"),
         "dispute_note": match_document.get("dispute_note"),
@@ -459,6 +465,7 @@ def serialize_match(
         },
         "current_user_role": participant_role,
         "current_user_score": current_user_score,
+        "can_forfeit": can_forfeit,
         "opponent_score": opponent_score,
         "score_line": build_score_line(current_user_score, opponent_score),
         "result": result,

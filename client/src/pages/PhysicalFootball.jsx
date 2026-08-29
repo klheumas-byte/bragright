@@ -498,7 +498,9 @@ function GoalModal({ mode, onClose, players, events, canManage, working, onGoal,
 }
 
 function PlayerCardSelector({ players, selectedId, onSelect }) {
-  return <div className="physical-player-selector" role="group">{players.map((player) => <button type="button" key={player.id} className={`physical-player-card${selectedId === player.id ? " is-selected" : ""}`} aria-pressed={selectedId === player.id} onClick={() => onSelect(player.id)}><strong title={player.name}>{player.name}</strong></button>)}</div>;
+  const [query, setQuery] = useState("");
+  const visiblePlayers = players.filter((player) => player.name.toLowerCase().includes(query.trim().toLowerCase()));
+  return <div className="physical-player-selector-wrap">{players.length > 8 ? <input className="physical-player-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a player" aria-label="Find a player" /> : null}<div className="physical-player-selector" role="group">{visiblePlayers.map((player) => <button type="button" key={player.id} className={`physical-player-card${selectedId === player.id ? " is-selected" : ""}`} aria-pressed={selectedId === player.id} onClick={() => onSelect(player.id)}><strong title={player.name}>{player.name}</strong></button>)}</div>{!visiblePlayers.length ? <p className="section-copy">No players match that search.</p> : null}</div>;
 }
 
 function EventReview({ events, players, canManage, working, onReview }) {

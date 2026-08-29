@@ -87,7 +87,14 @@ def resolve_statistics_match(match):
         else None
     )
     winner_id = str(match.get("winner_id") or "").strip() or None
-    if winner_id != expected_winner:
+    # A forfeit keeps the score as it stood but has a separate competitive
+    # outcome.  Do not turn a 2-2 (or a quitter-leading) match into a fake
+    # score merely to make the result validate.
+    result_type = str(match.get("result_type") or "normal").strip().lower()
+    if result_type == "forfeit":
+        if winner_id not in {player_one_id, player_two_id}:
+            return None, "invalid_forfeit_winner"
+    elif winner_id != expected_winner:
         return None, "winner_score_mismatch"
 
     played_at = (
@@ -114,6 +121,8 @@ def resolve_statistics_match(match):
         "player_one_score": player_one_score,
         "player_two_score": player_two_score,
         "winner_id": expected_winner,
+        "competitive_winner_id": winner_id,
+        "result_type": result_type,
         "played_at": _as_utc(played_at),
         "confirmed_at": _as_utc(played_at),
         "competition_id": str(
@@ -334,7 +343,8 @@ def orient_match(match, player_id):
     opponent_score = match["player_two_score"] if is_one else match["player_one_score"]
     opponent_id = match["player_two_id"] if is_one else match["player_one_id"]
     opponent_name = match["player_two_name"] if is_one else match["player_one_name"]
-    result = "draw" if match["winner_id"] is None else "win" if match["winner_id"] == player_id else "loss"
+    competitive_winner = match.get("competitive_winner_id", match["winner_id"])
+    result = "draw" if competitive_winner is None else "win" if competitive_winner == player_id else "loss"
     return {
         "match_id": match["id"],
         "id": match["id"],
@@ -348,7 +358,8 @@ def orient_match(match, player_id):
         "opponent_name": opponent_name,
         "played_at": match["played_at"].isoformat() if match["played_at"] else None,
         "confirmed_at": match["played_at"].isoformat() if match["played_at"] else None,
-        "winner_id": match["winner_id"],
+        "winner_id": competitive_winner,
+        "result_type": match.get("result_type", "normal"),
     }
 
 

@@ -8098,6 +8098,8 @@ html[data-theme] .challenge-page-section .opponent-option-card.opponent-option-s
 .physical-match-actions .ui-button { min-height: 3rem; }
 .physical-match-actions small { color: var(--text-muted, #64748b); text-align: center; }
 .physical-player-selector { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.45rem; }
+.physical-player-selector-wrap { display: grid; gap: 0.5rem; min-width: 0; }
+.physical-player-search { width: 100%; min-height: 2.75rem; padding: 0.55rem 0.7rem; border: 1px solid var(--border-subtle, #dbe3ee); border-radius: 0.65rem; background: var(--surface-primary, #fff); color: var(--text-primary, #0f172a); }
 .physical-player-card, .physical-no-assist { min-width: 0; min-height: 3.4rem; padding: 0.55rem; border: 1px solid var(--border-subtle, #dbe3ee); border-radius: 0.7rem; background: var(--surface-primary, #fff); color: var(--text-primary, #0f172a); cursor: pointer; }
 .physical-player-card strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .physical-player-card.is-selected, .physical-no-assist.is-selected { border: 2px solid var(--accent-primary, #0d9488); background: color-mix(in srgb, var(--accent-primary, #0d9488) 12%, var(--surface-primary, #fff)); }

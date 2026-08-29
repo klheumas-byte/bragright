@@ -17,6 +17,7 @@ from ..db import (
     get_users_collection,
 )
 from ..services.activity_logger import record_activity
+from ..services.leaderboard_reign_service import refresh_reigns
 from ..services.admin_access import ADMIN_ROLE, get_user_role
 from ..services.api_security import (
     ErrorCode,
@@ -325,6 +326,20 @@ def _parse_submit_result_payload(match_document, payload):
         "proof_image_url": proof_image_url,
         "played_at": played_at,
     }, None
+
+
+def _parse_forfeit_payload(match_document, payload):
+    validated, validation_error = validate_scores_and_winner(
+        match_document, payload.get("player_one_score"), payload.get("player_two_score"), None
+    )
+    if validation_error:
+        return None, validation_error
+    reason = str(payload.get("reason") or "").strip()
+    if len(reason) > 500:
+        return None, "Quit reason must be 500 characters or fewer."
+    if payload.get("confirmed") is not True:
+        return None, "Confirm the quit before finalizing the forfeit."
+    return {"player_one_score": validated["player_one_score"], "player_two_score": validated["player_two_score"], "reason": reason or None}, None
 
 
 def _parse_dispute_payload(payload):
@@ -893,7 +908,7 @@ def submit_match_result(match_id):
 
         update_result = matches.update_one(
             {"_id": match["_id"], "status": match.get("status")},
-            {"$set": updated_fields},
+            {"$set": updated_fields, "$push": {"result_history": {"event": "result_submitted", "actor_id": str(current_user["_id"]), "at": submitted_at, "score": [parsed_payload["player_one_score"], parsed_payload["player_two_score"]], "winner_id": parsed_payload["winner_id"]}}},
         )
         if update_result.matched_count != 1:
             return _json_error("This match changed before the result was submitted. Refresh and try again.", 409, code="stale_match_action")
@@ -940,6 +955,54 @@ def submit_match_result(match_id):
     except Exception:
         current_app.logger.exception("Unexpected error while submitting match result")
         return _json_error("Could not submit the match result.", 500)
+
+
+@matches_bp.post("/<match_id>/forfeit")
+@require_player
+def forfeit_match(match_id):
+    """Finalize an in-progress match without falsifying its actual score."""
+    try:
+        current_user, error_response, status_code = _load_current_user()
+        if error_response:
+            return error_response, status_code
+        match, matches, load_error = _load_match(match_id)
+        if load_error:
+            return load_error
+        quitter_id = str(current_user["_id"])
+        membership_error = _ensure_user_in_match(match, quitter_id)
+        if membership_error:
+            return membership_error
+        if resolve_actionable_status(match) != MATCH_STATUS_PENDING_RESULT or not match.get("accepted_at"):
+            return _json_error("Only an accepted, in-progress match can be forfeited.", 400)
+        payload, body_error = get_json_object(allowed_fields={"player_one_score", "player_two_score", "reason", "confirmed"})
+        if body_error:
+            return body_error
+        parsed, validation_error = _parse_forfeit_payload(match, payload)
+        if validation_error:
+            return _json_error(validation_error, 400)
+        players = resolve_match_players(match)
+        winner_id = players["player_two_id"] if quitter_id == players["player_one_id"] else players["player_one_id"]
+        finalized_at = now_utc()
+        fields = {
+            "previous_status": match.get("status"), "status": MATCH_STATUS_CONFIRMED,
+            "player_one_score": parsed["player_one_score"], "player_two_score": parsed["player_two_score"],
+            "winner_id": winner_id, "result_type": "forfeit", "quit_by": quitter_id,
+            "quit_reason": parsed["reason"], "quit_at": finalized_at, "confirmed_at": finalized_at,
+            "result_submitted_at": finalized_at, "result_submitted_by": quitter_id,
+            "result_source": MATCH_RESULT_SOURCE_PLAYER, "ranking_points": {winner_id: 4, quitter_id: 0},
+            "updated_at": finalized_at,
+        }
+        result = matches.update_one({"_id": match["_id"], "status": match.get("status")}, {"$set": fields, "$push": {"result_history": {"event": "forfeit_confirmed", "actor_id": quitter_id, "at": finalized_at, "actual_score": [parsed["player_one_score"], parsed["player_two_score"]], "competitive_winner_id": winner_id, "reason": parsed["reason"]}}})
+        if result.matched_count != 1:
+            return _json_error("This match changed before the forfeit was finalized. Refresh and try again.", 409, code="stale_match_action")
+        updated = matches.find_one({"_id": match["_id"]})
+        refresh_reigns(current_app.config, current_app.logger)
+        record_activity(user=serialize_user(current_user), action_type="forfeit_confirmed", action_label="Match forfeited", details={"match_id": str(match["_id"]), "quit_by": quitter_id, "winner_id": winner_id, "actual_score": [parsed["player_one_score"], parsed["player_two_score"]], "reason": parsed["reason"]})
+        serialized = serialize_match(updated, quitter_id)
+        return jsonify({"success": True, "message": "Forfeit confirmed. The actual score was preserved.", "data": serialized, "match": serialized}), 200
+    except PyMongoError:
+        current_app.logger.exception("MongoDB error while recording forfeit")
+        return _json_error("Could not record the forfeit.", 500)
 
 
 @matches_bp.post("/<match_id>/accept")
@@ -1305,6 +1368,8 @@ def confirm_match(match_id):
         if update_result.matched_count != 1:
             return _json_error("This result was already handled.", 409, code="stale_match_action")
         updated_match = matches.find_one({"_id": match["_id"]})
+
+        refresh_reigns(current_app.config, current_app.logger)
 
         record_activity(
             user=serialize_user(current_user),

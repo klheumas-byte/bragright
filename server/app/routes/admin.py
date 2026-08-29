@@ -34,6 +34,7 @@ from ..services.admin_access import (
     is_bootstrap_admin_email,
 )
 from ..services.activity_logger import get_activity_logs, record_activity
+from ..services.leaderboard_reign_service import refresh_reigns
 from ..services.auth_sessions import revoke_user_sessions
 from ..services.api_security import (
     get_json_object,
@@ -1668,8 +1669,20 @@ def resolve_admin_dispute(match_id):
             )
 
         matches = get_matches_collection(config=current_app.config, logger=current_app.logger)
-        matches.update_one({"_id": match["_id"]}, {"$set": updated_fields})
+        # Keep the player submission immutable in the timeline; an authoritative
+        # correction is an additional record, never a silent overwrite.
+        matches.update_one(
+            {"_id": match["_id"]},
+            {"$set": updated_fields, "$push": {"result_history": {
+                "event": "admin_dispute_resolution", "actor_id": current_user["id"],
+                "at": reviewed_at, "action": parsed_payload["resolution_action"],
+                "previous": {"status": match.get("status"), "score": [match.get("player_one_score"), match.get("player_two_score")], "winner_id": match.get("winner_id")},
+                "next": {"status": updated_fields["status"], "score": [updated_fields.get("player_one_score", match.get("player_one_score")), updated_fields.get("player_two_score", match.get("player_two_score"))], "winner_id": updated_fields.get("winner_id")},
+                "reason": parsed_payload["resolution_note"],
+            }}},
+        )
         updated_match = matches.find_one({"_id": match["_id"]})
+        refresh_reigns(current_app.config, current_app.logger)
         activity_type = "admin_match_resolved"
         activity_label = "Admin resolved match"
         if parsed_payload["resolution_action"] == "reject_result":

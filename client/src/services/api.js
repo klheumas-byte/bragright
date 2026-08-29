@@ -1015,6 +1015,13 @@ export function disputeMatch(matchId, disputePayload = {}) {
   });
 }
 
+export function forfeitMatch(matchId, payload = {}) {
+  return apiMutation(`/matches/${matchId}/forfeit`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function cancelMatch(matchId) {
   return apiMutation(`/matches/${matchId}/cancel`, {
     method: "POST",

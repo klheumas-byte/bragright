@@ -28,6 +28,7 @@ BILLING_RUNS_COLLECTION_NAME = "billing_runs"
 PHYSICAL_FOOTBALL_SESSIONS_COLLECTION_NAME = "physical_football_sessions"
 PHYSICAL_FOOTBALL_AVAILABILITY_COLLECTION_NAME = "physical_football_availability"
 PHYSICAL_FOOTBALL_TEAMS_COLLECTION_NAME = "physical_football_teams"
+LEADERBOARD_REIGNS_COLLECTION_NAME = "leaderboard_reigns"
 
 _env_loaded = False
 _mongo_client = None
@@ -378,6 +379,10 @@ def get_physical_football_teams_collection(config=None, logger=None):
     return get_db(config=config, logger=logger)[PHYSICAL_FOOTBALL_TEAMS_COLLECTION_NAME]
 
 
+def get_leaderboard_reigns_collection(config=None, logger=None):
+    return get_db(config=config, logger=logger)[LEADERBOARD_REIGNS_COLLECTION_NAME]
+
+
 def ensure_auth_sessions_indexes(auth_sessions_collection):
     auth_sessions_collection.create_index(
         "session_id", unique=True, name="sessions_id_unique"
@@ -489,6 +494,9 @@ def ensure_physical_football_indexes(db):
     db[PHYSICAL_FOOTBALL_TEAMS_COLLECTION_NAME].create_index(
         "team_id", unique=True, name="physical_football_team_id_unique"
     )
+    db[LEADERBOARD_REIGNS_COLLECTION_NAME].create_index(
+        [("position", ASCENDING), ("started_at", DESCENDING)], name="leaderboard_reigns_position_started"
+    )
 
 
 def ensure_database_indexes(config=None, logger=None):
@@ -524,6 +532,7 @@ def get_db_debug_snapshot(config=None):
         debug["activity_logs_collection"] = ACTIVITY_LOGS_COLLECTION_NAME
         debug["auth_sessions_collection"] = AUTH_SESSIONS_COLLECTION_NAME
         debug["proof_uploads_collection"] = PROOF_UPLOADS_COLLECTION_NAME
+        debug["leaderboard_reigns_collection"] = LEADERBOARD_REIGNS_COLLECTION_NAME
         return debug
     except RuntimeError as exc:
         return {
