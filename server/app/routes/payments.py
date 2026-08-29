@@ -736,7 +736,11 @@ def paystack_webhook():
         return _error("Paystack transaction is not successful.", 409, "transaction_not_successful")
     return jsonify({
         "success": True,
-        "data": {"processed": fulfilled, "payment_id": str(updated["_id"])},
+        "data": {
+            "processed": fulfilled,
+            "payment_id": str(updated["_id"]),
+            "player_id": str(updated["player_id"]),
+        },
     })
 
 

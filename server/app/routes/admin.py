@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from bson import ObjectId
 from bson.errors import InvalidId
 from flask import Blueprint, current_app, jsonify, request
-from pymongo import DESCENDING
+from pymongo import DESCENDING, ReturnDocument
 from pymongo.errors import DuplicateKeyError, PyMongoError
 from werkzeug.security import generate_password_hash
 
@@ -34,9 +34,10 @@ from ..services.admin_access import (
     is_bootstrap_admin_email,
 )
 from ..services.activity_logger import get_activity_logs, record_activity
-from ..services.leaderboard_reign_service import refresh_reigns
+from ..services.leaderboard_reign_service import refresh_reigns_after_mutation
 from ..services.auth_sessions import revoke_user_sessions
 from ..services.api_security import (
+    api_error,
     get_json_object,
     pagination_metadata,
     parse_bounded_int_query,
@@ -166,6 +167,37 @@ def _serialize_admin_match(match_document, users_by_id=None):
         }
     )
     return serialized
+
+
+def _serialize_resolved_match_safely(match_document):
+    """Keep an already-committed resolution successful if enrichment is unavailable."""
+    try:
+        users_by_id = _load_user_names(
+            match_document.get("player_one_id") or match_document.get("submitted_by"),
+            match_document.get("player_two_id") or match_document.get("opponent_id"),
+            match_document.get("disputed_by"),
+            match_document.get("reviewed_by"),
+        )
+        return _serialize_admin_match(match_document, users_by_id)
+    except Exception:
+        current_app.logger.exception(
+            "Admin dispute was committed but response enrichment failed"
+        )
+        reviewed_at = match_document.get("reviewed_at")
+        return {
+            "id": str(match_document["_id"]),
+            "status": match_document.get("status"),
+            "display_status": format_match_status(match_document.get("status")),
+            "player_one_id": str(match_document.get("player_one_id") or match_document.get("submitted_by") or ""),
+            "player_two_id": str(match_document.get("player_two_id") or match_document.get("opponent_id") or ""),
+            "player_one_score": match_document.get("player_one_score"),
+            "player_two_score": match_document.get("player_two_score"),
+            "winner_id": match_document.get("winner_id"),
+            "resolution_action": match_document.get("resolution_action"),
+            "resolution_note": match_document.get("resolution_note"),
+            "reviewed_by": match_document.get("reviewed_by"),
+            "reviewed_at": reviewed_at.isoformat() if isinstance(reviewed_at, datetime) else None,
+        }
 
 
 def _serialize_admin_user(user_document):
@@ -1586,9 +1618,15 @@ def resolve_admin_dispute(match_id):
         if auth_error:
             return auth_error, auth_status
 
-        match, error_response, status_code = _load_match(match_id, required_status=MATCH_STATUS_DISPUTED)
+        match, error_response, status_code = _load_match(match_id)
         if error_response:
             return error_response, status_code
+        if match.get("status") != MATCH_STATUS_DISPUTED:
+            return api_error(
+                "This dispute was already resolved or changed. The latest match state must be reloaded.",
+                409,
+                "stale_match_action",
+            )
 
         payload, body_error = get_json_object(
             allowed_fields={
@@ -1671,8 +1709,8 @@ def resolve_admin_dispute(match_id):
         matches = get_matches_collection(config=current_app.config, logger=current_app.logger)
         # Keep the player submission immutable in the timeline; an authoritative
         # correction is an additional record, never a silent overwrite.
-        matches.update_one(
-            {"_id": match["_id"]},
+        updated_match = matches.find_one_and_update(
+            {"_id": match["_id"], "status": MATCH_STATUS_DISPUTED},
             {"$set": updated_fields, "$push": {"result_history": {
                 "event": "admin_dispute_resolution", "actor_id": current_user["id"],
                 "at": reviewed_at, "action": parsed_payload["resolution_action"],
@@ -1680,9 +1718,23 @@ def resolve_admin_dispute(match_id):
                 "next": {"status": updated_fields["status"], "score": [updated_fields.get("player_one_score", match.get("player_one_score")), updated_fields.get("player_two_score", match.get("player_two_score"))], "winner_id": updated_fields.get("winner_id")},
                 "reason": parsed_payload["resolution_note"],
             }}},
+            return_document=ReturnDocument.AFTER,
         )
-        updated_match = matches.find_one({"_id": match["_id"]})
-        refresh_reigns(current_app.config, current_app.logger)
+        if updated_match is None:
+            return api_error(
+                "This dispute was resolved by another admin. The latest match state must be reloaded.",
+                409,
+                "stale_match_action",
+            )
+
+        # Everything below is derived or presentational. The authoritative
+        # transition above has committed and must not be reported as failed.
+        try:
+            refresh_reigns_after_mutation(current_app.config, current_app.logger)
+        except Exception:
+            current_app.logger.exception(
+                "Dispute committed but leaderboard reign refresh hook failed"
+            )
         activity_type = "admin_match_resolved"
         activity_label = "Admin resolved match"
         if parsed_payload["resolution_action"] == "reject_result":
@@ -1692,30 +1744,29 @@ def resolve_admin_dispute(match_id):
             activity_type = "admin_match_overridden"
             activity_label = "Admin overrode match result"
 
-        record_activity(
-            user=current_user,
-            action_type=activity_type,
-            action_label=activity_label,
-            details={
-                "match_id": str(match["_id"]),
-                "resolution_action": parsed_payload["resolution_action"],
-                "resolution_note": parsed_payload["resolution_note"],
-                "override_player_score": parsed_payload["override_player_score"],
-                "override_opponent_score": parsed_payload["override_opponent_score"],
-            },
-        )
-        users_by_id = _load_user_names(
-            updated_match.get("player_one_id") or updated_match.get("submitted_by"),
-            updated_match.get("player_two_id") or updated_match.get("opponent_id"),
-            updated_match.get("disputed_by"),
-            updated_match.get("reviewed_by"),
-        )
+        try:
+            record_activity(
+                user=current_user,
+                action_type=activity_type,
+                action_label=activity_label,
+                details={
+                    "match_id": str(match["_id"]),
+                    "resolution_action": parsed_payload["resolution_action"],
+                    "resolution_note": parsed_payload["resolution_note"],
+                    "override_player_score": parsed_payload["override_player_score"],
+                    "override_opponent_score": parsed_payload["override_opponent_score"],
+                },
+            )
+        except Exception:
+            current_app.logger.exception(
+                "Dispute committed but activity logging hook failed"
+            )
 
         return jsonify(
             {
                 "success": True,
                 "message": "Dispute resolved successfully.",
-                "data": _serialize_admin_match(updated_match, users_by_id),
+                "data": _serialize_resolved_match_safely(updated_match),
             }
         ), 200
     except PyMongoError as error:

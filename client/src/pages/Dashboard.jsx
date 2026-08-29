@@ -31,6 +31,7 @@ import { Badge, Button, Card, EmptyState, PageSection } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
+import useRealtimeRefresh from "../hooks/useRealtimeRefresh";
 import {
   getDashboardSummary,
   getLeaderboard,
@@ -77,6 +78,16 @@ export default function Dashboard() {
     summary: "",
     ranking: "",
     activity: "",
+  });
+
+  useRealtimeRefresh([
+    "challenge.created", "challenge.accepted", "challenge.declined", "match.updated",
+    "match.result_submitted", "match.result_confirmed", "match.result_disputed",
+    "match.resolved", "leaderboard.updated", "realtime.resync",
+  ], () => {
+    loadDashboardSummary({ forceRefresh: true });
+    loadRanking({ forceRefresh: true });
+    loadActivity({ forceRefresh: true });
   });
 
   useEffect(() => {

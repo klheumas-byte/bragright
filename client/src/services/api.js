@@ -125,8 +125,10 @@ async function refreshAuthentication() {
   })
     .then(establishSessionFromResponse)
     .catch((error) => {
-      clearAuthSession();
-      clearApiCache();
+      if (error?.status === 401 || error?.status === 423) {
+        clearAuthSession();
+        clearApiCache();
+      }
       throw error;
     })
     .finally(() => {
@@ -546,6 +548,12 @@ export function restoreSession() {
       // temporary network interruption; protected API calls still enforce it.
       return { success: true, user: storedSession.user, restored_offline: true };
     });
+}
+
+export function getRealtimeEvents({ after = "", limit = 100 } = {}) {
+  const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(Number(limit) || 100, 200))) });
+  if (after) params.set("after", after);
+  return apiRequest(`/realtime/events?${params.toString()}`);
 }
 
 export function getMyProfile(options = {}) {

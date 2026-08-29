@@ -3477,6 +3477,18 @@ a {
   color: var(--text-muted);
 }
 
+.leaderboard-reign-duration {
+  display: grid;
+  gap: .2rem;
+  text-align: right;
+}
+
+.leaderboard-reign-duration span,
+.leaderboard-reign-totals li > span:last-child {
+  color: var(--text-muted);
+  font-size: .82rem;
+}
+
 .leaderboard-entry-card {
   display: grid;
   grid-template-columns: 72px minmax(240px, 1.5fr) minmax(190px, 0.8fr) auto;
@@ -4428,6 +4440,10 @@ a {
   .leaderboard-reign-list li {
     grid-template-columns: minmax(0, 1fr);
     gap: .35rem;
+  }
+
+  .leaderboard-reign-duration {
+    text-align: left;
   }
 
   .leaderboard-current-card > .ui-button,

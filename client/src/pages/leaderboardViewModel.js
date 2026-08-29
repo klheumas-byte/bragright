@@ -82,12 +82,24 @@ export function normalizeLeaderboardSearch(value) {
 export function normalizeLeaderboardReigns(data) {
   const source = data || {};
   const reigns = Array.isArray(source.reigns) ? source.reigns.map(normalizeReign) : [];
+  const totalSecondsByPlayer = Object.fromEntries(
+    Object.entries(source.total_seconds_by_player || {}).map(([id, seconds]) => [id, toCount(seconds)])
+  );
+  const playerNames = new Map(reigns.map((reign) => [reign.playerId, reign.player.username]));
+  if (source.current?.player_id) {
+    playerNames.set(String(source.current.player_id), String(source.current.player?.username || "Player"));
+  }
   return {
     current: source.current ? normalizeReign(source.current) : null,
     reigns,
-    totalSecondsByPlayer: Object.fromEntries(
-      Object.entries(source.total_seconds_by_player || {}).map(([id, seconds]) => [id, toCount(seconds)])
-    ),
+    totalSecondsByPlayer,
+    leaders: Object.entries(totalSecondsByPlayer)
+      .map(([playerId, durationSeconds]) => ({
+        playerId,
+        username: playerNames.get(playerId) || "Player",
+        durationSeconds,
+      }))
+      .sort((left, right) => right.durationSeconds - left.durationSeconds || left.username.localeCompare(right.username)),
   };
 }
 

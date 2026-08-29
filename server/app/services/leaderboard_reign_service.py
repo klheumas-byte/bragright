@@ -1,18 +1,36 @@
 """Deterministic #1 history derived only from authoritative completed matches."""
 
+import logging
 from datetime import datetime, timezone
 
 from ..db import get_leaderboard_reigns_collection, get_matches_collection, get_users_collection
 from .competitive_service import _apply_match_to_stats
 
 
+LOGGER = logging.getLogger(__name__)
+
+
+def _as_utc(value):
+    """Normalize PyMongo's naive UTC datetimes and already-aware values."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def reconstruct_reigns(users, matches, *, now=None):
     """Return leader-change reigns using the same ranking points/tie-breaks as ranking."""
-    now = now or datetime.now(timezone.utc)
+    now = _as_utc(now or datetime.now(timezone.utc))
     players = [u for u in users if str(u.get("role") or "player") == "player" and u.get("status") != "disabled"]
     names = {str(u["_id"]): u.get("username") or "Player" for u in players}
     counters = {pid: {"total_matches": 0, "wins": 0, "losses": 0, "draws": 0, "points": 0} for pid in names}
-    authoritative = [m for m in matches if m.get("status") == "confirmed" and isinstance(m.get("confirmed_at"), datetime)]
+    authoritative = []
+    for match in matches:
+        confirmed_at = match.get("confirmed_at")
+        if match.get("status") != "confirmed" or not isinstance(confirmed_at, datetime):
+            continue
+        normalized_match = dict(match)
+        normalized_match["confirmed_at"] = _as_utc(confirmed_at)
+        authoritative.append(normalized_match)
     authoritative.sort(key=lambda m: (m["confirmed_at"], str(m.get("_id") or "")))
     reigns, leader_id = [], None
     for match in authoritative:
@@ -43,10 +61,23 @@ def refresh_reigns(config, logger=None):
     return reigns
 
 
+def refresh_reigns_after_mutation(config, logger=None):
+    """Refresh derived history without misreporting an already-committed action."""
+    log = logger or LOGGER
+    try:
+        return refresh_reigns(config, log)
+    except Exception:
+        log.exception("Leaderboard reign refresh failed after a committed match update")
+        return None
+
+
 def reign_summary(reigns, *, now=None):
-    now = now or datetime.now(timezone.utc)
+    now = _as_utc(now or datetime.now(timezone.utc))
     completed = [dict(item) for item in reigns]
     for item in completed:
+        item["started_at"] = _as_utc(item["started_at"])
+        if item.get("ended_at") is not None:
+            item["ended_at"] = _as_utc(item["ended_at"])
         if item.get("ended_at") is None:
             item["duration_seconds"] = max(0, int((now - item["started_at"]).total_seconds()))
     totals = {}

@@ -7,6 +7,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { LoadingProvider } from "./context/LoadingContext";
 import { PlayerDirectoryProvider } from "./context/PlayerDirectoryContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import RealtimeProvider from "./context/RealtimeProvider";
 import "./styles/tokens.css";
 import "./styles/design-system.css";
 import "./index.css";
@@ -19,9 +20,11 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <AppErrorBoundary>
           <LoadingProvider>
             <AuthProvider>
-              <PlayerDirectoryProvider>
-                <App />
-              </PlayerDirectoryProvider>
+              <RealtimeProvider>
+                <PlayerDirectoryProvider>
+                  <App />
+                </PlayerDirectoryProvider>
+              </RealtimeProvider>
             </AuthProvider>
           </LoadingProvider>
         </AppErrorBoundary>

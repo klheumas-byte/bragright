@@ -16,6 +16,7 @@ import { Badge, Button, Card, EmptyState, Field, PageSection, Select } from "../
 import { useAuth } from "../context/AuthContext";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
+import useRealtimeRefresh from "../hooks/useRealtimeRefresh";
 import { getLeaderboard, getLeaderboardReigns } from "../services/api";
 import {
   canChallengeLeaderboardPlayer,
@@ -60,9 +61,14 @@ export default function Leaderboard() {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [reigns, setReigns] = useState({ current: null, reigns: [], totalSecondsByPlayer: {} });
+  const [reigns, setReigns] = useState({ current: null, reigns: [], totalSecondsByPlayer: {}, leaders: [] });
   const [reignsLoading, setReignsLoading] = useState(true);
   const [reignsError, setReignsError] = useState("");
+
+  useRealtimeRefresh(["leaderboard.updated", "realtime.resync"], () => {
+    loadLeaderboard({ forceRefresh: true });
+    loadReigns({ forceRefresh: true });
+  });
 
   useEffect(() => {
     mountedRef.current = true;
@@ -290,8 +296,22 @@ export default function Leaderboard() {
             <div className="leaderboard-reign-current">
               <Badge tone="success">Current #1</Badge>
               <PlayerIdentity player={reigns.current.player} variant="compact" showUsername={false} />
-              <strong>{formatReignDuration(reigns.current.durationSeconds)} in this reign</strong>
+              <div className="leaderboard-reign-duration">
+                <strong>{formatReignDuration(reigns.current.durationSeconds)} in this reign</strong>
+                <span>{formatReignDuration(reigns.totalSecondsByPlayer[reigns.current.playerId])} total at #1</span>
+              </div>
             </div>
+            <h3>All-time ownership</h3>
+            <ol className="leaderboard-reign-list leaderboard-reign-totals" aria-label="Total time each player has held number one">
+              {reigns.leaders.map((leader) => (
+                <li key={leader.playerId}>
+                  <span>{leader.username}</span>
+                  <strong>{formatReignDuration(leader.durationSeconds)}</strong>
+                  <span>total at #1</span>
+                </li>
+              ))}
+            </ol>
+            <h3>Recent reigns</h3>
             <ol className="leaderboard-reign-list" aria-label="Most recent number-one reigns">
               {[...reigns.reigns].reverse().slice(0, 8).map((reign, index) => (
                 <li key={`${reign.playerId}-${reign.startedAt || index}`}>

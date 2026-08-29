@@ -10,6 +10,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { getDashboardActionCenter } from "../services/api";
+import useRealtimeRefresh from "../hooks/useRealtimeRefresh";
 import { formatActivityTimestamp } from "../components/activityPresentation";
 import SidebarIcon from "../components/SidebarIcon";
 import { Badge, Button, Card, EmptyState } from "../components/ui";
@@ -86,6 +87,20 @@ export function NotificationProvider({ children }) {
       requestInFlightRef.current = false;
     }
   }, [applySnapshot, user?.id]);
+
+  useRealtimeRefresh([
+    "notification.created", "notification.updated", "challenge.created", "challenge.accepted",
+    "challenge.declined", "match.result_submitted", "match.result_confirmed",
+    "match.result_disputed", "match.resolved", "payment.recorded",
+    "subscription.activated", "subscription.restricted", "realtime.resync",
+    "realtime.connection",
+  ], (event) => {
+    if (event.type === "realtime.connection") {
+      setConnectionState(event.state === "recovering" ? "delayed" : event.state);
+      return;
+    }
+    refresh({ announce: true });
+  });
 
   useEffect(() => {
     mountedRef.current = true;

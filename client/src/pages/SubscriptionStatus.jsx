@@ -2,9 +2,12 @@ import { useEffect, useState } from "react";
 import Button from "../components/ui/Button";
 import PayAheadPanel from "../components/PayAheadPanel";
 import DashboardLayout from "../layouts/DashboardLayout";
+import { useAuth } from "../context/AuthContext";
+import useRealtimeRefresh from "../hooks/useRealtimeRefresh";
 import { getSubscriptionStatus, submitPlayerPayment, uploadPaymentProof } from "../services/api";
 
 export default function SubscriptionStatus() {
+  const { refreshCurrentUser } = useAuth();
   const [state, setState] = useState({ loading: true, error: "", data: null });
   const [feedback, setFeedback] = useState("");
   const [saving, setSaving] = useState(false);
@@ -16,6 +19,13 @@ export default function SubscriptionStatus() {
     payment_date: new Date().toISOString().slice(0, 10),
     proof: "",
     note: "",
+  });
+
+  useRealtimeRefresh([
+    "payment.recorded", "subscription.activated", "subscription.restricted", "realtime.resync",
+  ], async () => {
+    await loadStatus();
+    await refreshCurrentUser();
   });
 
   useEffect(() => {

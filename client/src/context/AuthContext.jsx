@@ -24,21 +24,65 @@ export const PAYMENT_HOME_PATH = "/payments/dashboard";
 export function AuthProvider({ children }) {
   const { trackLoading } = useLoading();
   const [user, setUser] = useState(null);
-  const [isInitializing, setIsInitializing] = useState(true);
+  const [authStatus, setAuthStatus] = useState("checking");
 
   useEffect(() => {
+    let retryTimer = null;
+    let restoreInFlight = false;
+    let disposed = false;
     const unsubscribe = subscribeAuthSession((nextUser) => {
       setUser(normalizeUserRole(nextUser));
+      if (nextUser) {
+        setAuthStatus("authenticated");
+      } else {
+        setAuthStatus((current) => current === "checking" ? current : "unauthenticated");
+      }
     });
 
-    initializeAuth();
-    return unsubscribe;
+    async function attemptRestore() {
+      if (restoreInFlight || disposed) return;
+      restoreInFlight = true;
+      removeLegacyStoredAuthentication();
+      try {
+        const data = await trackLoading(() => restoreSession());
+        if (disposed) return;
+        updateSessionUser(normalizeUserRole(data.user));
+        setAuthStatus("authenticated");
+      } catch (error) {
+        if (disposed) return;
+        if (error?.status === 401 || error?.status === 423) {
+          clearAuthSession();
+          setAuthStatus("unauthenticated");
+        } else {
+          setAuthStatus("checking");
+          retryTimer = window.setTimeout(attemptRestore, 5_000);
+        }
+      } finally {
+        restoreInFlight = false;
+      }
+    }
+
+    const retryNow = () => {
+      window.clearTimeout(retryTimer);
+      attemptRestore();
+    };
+    window.addEventListener("online", retryNow);
+    window.addEventListener("focus", retryNow);
+    attemptRestore();
+    return () => {
+      disposed = true;
+      window.clearTimeout(retryTimer);
+      window.removeEventListener("online", retryNow);
+      window.removeEventListener("focus", retryNow);
+      unsubscribe();
+    };
   }, []);
 
   async function register(credentials) {
     const data = await trackLoading(() => registerUser(credentials));
     const normalizedUser = normalizeUserRole(data.user);
     updateSessionUser(normalizedUser);
+    setAuthStatus("authenticated");
     return normalizedUser;
   }
 
@@ -46,6 +90,7 @@ export function AuthProvider({ children }) {
     const data = await trackLoading(() => loginUser(credentials));
     const normalizedUser = normalizeUserRole(data.user);
     updateSessionUser(normalizedUser);
+    setAuthStatus("authenticated");
     return normalizedUser;
   }
 
@@ -64,6 +109,7 @@ export function AuthProvider({ children }) {
     } finally {
       clearAuthSession();
       clearClientApiCache();
+      setAuthStatus("unauthenticated");
     }
   }
 
@@ -74,22 +120,11 @@ export function AuthProvider({ children }) {
     return { ...data, user: normalizedUser };
   }
 
-  async function initializeAuth() {
-    removeLegacyStoredAuthentication();
-    try {
-      const data = await trackLoading(() => restoreSession());
-      updateSessionUser(normalizeUserRole(data.user));
-    } catch (error) {
-      clearAuthSession();
-    } finally {
-      setIsInitializing(false);
-    }
-  }
-
   const value = {
     user,
-    isAuthenticated: Boolean(user),
-    isInitializing,
+    authStatus,
+    isAuthenticated: authStatus === "authenticated" && Boolean(user),
+    isInitializing: authStatus === "checking",
     register,
     login,
     refreshCurrentUser,

@@ -64,6 +64,7 @@ test("verified reign history normalizes players and readable durations", () => {
   });
   assert.equal(result.current.player.username, "Alpha");
   assert.equal(result.totalSecondsByPlayer.a, 172800);
+  assert.deepEqual(result.leaders, [{ playerId: "a", username: "Alpha", durationSeconds: 172800 }]);
   assert.equal(formatReignDuration(result.current.durationSeconds), "2 days");
   assert.equal(formatReignDuration(3600), "1 hour");
 });
@@ -72,6 +73,8 @@ test("leaderboard displays backend-confirmed top-spot history with retry and emp
   assert.match(leaderboardPage, /getLeaderboardReigns/);
   assert.match(leaderboardPage, /Top-spot history/);
   assert.match(leaderboardPage, /Current #1/);
+  assert.match(leaderboardPage, /All-time ownership/);
+  assert.match(leaderboardPage, /total at #1/);
   assert.match(leaderboardPage, /Retry top-spot history/);
   assert.match(leaderboardPage, /No reign history yet/);
 });

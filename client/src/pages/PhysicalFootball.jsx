@@ -5,6 +5,7 @@ import { FormField, Input, Select } from "../components/ui/FormControls";
 import Modal from "../components/ui/Modal";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../layouts/DashboardLayout";
+import useRealtimeRefresh from "../hooks/useRealtimeRefresh";
 import {
   assignPhysicalFootballCoordinator,
   configurePhysicalFootballLive,
@@ -47,6 +48,8 @@ export default function PhysicalFootball() {
     ?? (isOrganizer && session?.status !== "completed");
   const canManageLive = session?.capabilities?.can_manage_live
     ?? (["admin", "match_coordinator"].includes(session?.session_role) && session?.status === "teams_confirmed");
+
+  useRealtimeRefresh(["physical_football.updated", "realtime.resync"], () => refreshSessionData(false));
 
   useEffect(() => { void loadSession(); }, []);
   useEffect(() => {

@@ -29,6 +29,7 @@ PHYSICAL_FOOTBALL_SESSIONS_COLLECTION_NAME = "physical_football_sessions"
 PHYSICAL_FOOTBALL_AVAILABILITY_COLLECTION_NAME = "physical_football_availability"
 PHYSICAL_FOOTBALL_TEAMS_COLLECTION_NAME = "physical_football_teams"
 LEADERBOARD_REIGNS_COLLECTION_NAME = "leaderboard_reigns"
+REALTIME_EVENTS_COLLECTION_NAME = "realtime_events"
 
 _env_loaded = False
 _mongo_client = None
@@ -383,6 +384,10 @@ def get_leaderboard_reigns_collection(config=None, logger=None):
     return get_db(config=config, logger=logger)[LEADERBOARD_REIGNS_COLLECTION_NAME]
 
 
+def get_realtime_events_collection(config=None, logger=None):
+    return get_db(config=config, logger=logger)[REALTIME_EVENTS_COLLECTION_NAME]
+
+
 def ensure_auth_sessions_indexes(auth_sessions_collection):
     auth_sessions_collection.create_index(
         "session_id", unique=True, name="sessions_id_unique"
@@ -496,6 +501,17 @@ def ensure_physical_football_indexes(db):
     )
     db[LEADERBOARD_REIGNS_COLLECTION_NAME].create_index(
         [("position", ASCENDING), ("started_at", DESCENDING)], name="leaderboard_reigns_position_started"
+    )
+    db[REALTIME_EVENTS_COLLECTION_NAME].create_index(
+        "expires_at", expireAfterSeconds=0, name="realtime_events_ttl"
+    )
+    db[REALTIME_EVENTS_COLLECTION_NAME].create_index(
+        [("audience_user_ids", ASCENDING), ("_id", ASCENDING)],
+        name="realtime_events_user_cursor",
+    )
+    db[REALTIME_EVENTS_COLLECTION_NAME].create_index(
+        [("audience_roles", ASCENDING), ("_id", ASCENDING)],
+        name="realtime_events_role_cursor",
     )
 
 

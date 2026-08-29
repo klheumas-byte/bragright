@@ -6,6 +6,7 @@ import SectionLoader from "../components/SectionLoader";
 import { Button, Card, Field, Radio, Select, Textarea } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import MatchActionLayout, { ActionTime } from "../layouts/MatchActionLayout";
+import useRealtimeRefresh from "../hooks/useRealtimeRefresh";
 import {
   acceptMatch,
   confirmMatch,
@@ -58,6 +59,13 @@ export default function MatchAction({ mode }) {
   const [rejecting, setRejecting] = useState(false);
   const [rejection, setRejection] = useState({
     reason: "", explanation: "", mine: "", opponent: "", proof: null,
+  });
+
+  useRealtimeRefresh([
+    "challenge.accepted", "challenge.declined", "match.updated", "match.result_submitted",
+    "match.result_confirmed", "match.result_disputed", "match.resolved", "realtime.resync",
+  ], (event) => {
+    if (!event.resource?.id || event.resource.id === matchId || event.type === "realtime.resync") loadMatch();
   });
 
   useEffect(() => {

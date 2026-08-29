@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../layouts/DashboardLayout";
+import useRealtimeRefresh from "../hooks/useRealtimeRefresh";
 import {
   Alert,
   Badge,
@@ -49,6 +50,10 @@ export default function PaymentOperations({ view = "dashboard" }) {
   const [settings, setSettings] = useState({ monthly_fee: "", currency: "GHS" });
   const [feedback, setFeedback] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(true);
+
+  useRealtimeRefresh([
+    "payment.recorded", "subscription.activated", "subscription.restricted", "realtime.resync",
+  ], load);
 
   const title = view === "record" ? "Record Payment" : view === "remittances" ? "Remittances" : "Payment Dashboard";
 

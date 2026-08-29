@@ -7,6 +7,7 @@ import SuccessAlert from "../components/SuccessAlert";
 import { Badge, Button } from "../components/ui";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
+import useRealtimeRefresh from "../hooks/useRealtimeRefresh";
 import { getAdminDispute, getAdminMatches, resolveAdminDispute } from "../services/api";
 import { getMatchStatusPresentation } from "./matchPresentation";
 
@@ -47,6 +48,10 @@ export default function AdminDisputes() {
   const [isListLoading, setIsListLoading] = useState(true);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useRealtimeRefresh([
+    "match.result_disputed", "match.resolved", "realtime.resync",
+  ], () => loadDisputes(selectedMatchId));
 
   useEffect(() => {
     loadDisputes();
@@ -180,6 +185,9 @@ export default function AdminDisputes() {
 
       await loadDisputes(selectedMatch.id);
     } catch (error) {
+      if (error?.status === 409) {
+        await loadDisputes(selectedMatch.id);
+      }
       setFeedback({
         type: "error",
         message: error.message,

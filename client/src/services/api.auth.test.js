@@ -92,6 +92,19 @@ test("expired per-tab sessions are discarded and fall back to the HttpOnly refre
   assert.equal(getAccessToken(), "new-access-token");
 });
 
+test("temporary refresh failure does not erase a still-valid local session", async () => {
+  const user = { id: "player-id", username: "Player", role: "player" };
+  globalThis.sessionStorage.setItem("bragright_session_v1", JSON.stringify({
+    accessToken: "stored-access-token", user, expiresAt: Date.now() + 60_000,
+  }));
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/auth/me")) return jsonResponse({ success: false, message: "Expired" }, 401);
+    throw new TypeError("Temporary network failure");
+  };
+  await assert.rejects(restoreSession(), (error) => error.code === "NETWORK_ERROR");
+  assert.equal(getAccessToken(), "stored-access-token");
+});
+
 
 test("simultaneous protected requests use one refresh operation", async () => {
   let refreshCalls = 0;

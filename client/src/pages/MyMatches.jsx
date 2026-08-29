@@ -27,6 +27,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { useLoading } from "../context/LoadingContext";
 import DashboardLayout from "../layouts/DashboardLayout";
+import useRealtimeRefresh from "../hooks/useRealtimeRefresh";
 import {
   acceptMatch,
   cancelMatch,
@@ -93,6 +94,16 @@ export default function MyMatches() {
   const [proofErrors, setProofErrors] = useState({});
   const [uploadStates, setUploadStates] = useState({});
   const [disputeNotes, setDisputeNotes] = useState({});
+
+  useRealtimeRefresh([
+    "challenge.created", "challenge.accepted", "challenge.declined", "match.updated",
+    "match.result_submitted", "match.result_confirmed", "match.result_disputed",
+    "match.resolved", "realtime.resync",
+  ], () => {
+    loadMatches({ forceRefresh: true });
+    loadActions({ forceRefresh: true });
+    if (selectedMatchId) loadSelectedMatch(selectedMatchId, { forceRefresh: true });
+  });
 
   useEffect(() => {
     loadMatches();

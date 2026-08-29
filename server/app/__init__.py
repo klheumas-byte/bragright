@@ -24,6 +24,7 @@ from .routes.players import players_bp
 from .routes.profile import profile_bp
 from .routes.payments import payments_bp
 from .routes.physical_football import physical_football_bp
+from .routes.realtime import realtime_bp
 from .services.api_security import (
     ErrorCode,
     api_error,
@@ -130,6 +131,7 @@ def create_app(config_class=Config):
     app.register_blueprint(competitive_bp, url_prefix="/api")
     app.register_blueprint(payments_bp, url_prefix="/api/payments")
     app.register_blueprint(physical_football_bp, url_prefix="/api/physical-football")
+    app.register_blueprint(realtime_bp, url_prefix="/api/realtime")
     app.add_url_rule("/api/upload", view_func=upload_proof, methods=["POST"], endpoint="upload_proof_alias")
     app.extensions["rate_limiter"] = FixedWindowRateLimiter()
 
@@ -207,6 +209,7 @@ def create_app(config_class=Config):
         "payments.list_payments": {"billing_month", "payment_method", "status", "officer_id", "player"},
         "payments.payment_dashboard": {"billing_month", "officer_id", "payment_method", "payment_status", "subscription_status", "player"},
         "payments.list_remittances": {"status", "billing_month", "officer_id"},
+        "realtime.get_realtime_events": {"after", "limit"},
     }
 
     @app.before_request
@@ -281,7 +284,7 @@ def create_app(config_class=Config):
         endpoint = request.endpoint or ""
         if (
             not endpoint
-            or endpoint.startswith(("auth.", "health.", "payments.", "static"))
+            or endpoint.startswith(("auth.", "health.", "payments.", "realtime.", "static"))
             or not request.path.startswith("/api/")
         ):
             return None
@@ -318,6 +321,13 @@ def create_app(config_class=Config):
 
     @app.after_request
     def secure_api_response(response):
+        if not getattr(g, "realtime_event_published", False):
+            try:
+                from .services.realtime_service import publish_request_event
+                publish_request_event(response)
+                g.realtime_event_published = True
+            except Exception:
+                app.logger.exception("Realtime event publication failed")
         if response.is_json:
             payload = response.get_json(silent=True)
             if payload is not None:

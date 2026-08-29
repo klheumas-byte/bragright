@@ -17,7 +17,7 @@ from ..db import (
     get_users_collection,
 )
 from ..services.activity_logger import record_activity
-from ..services.leaderboard_reign_service import refresh_reigns
+from ..services.leaderboard_reign_service import refresh_reigns_after_mutation
 from ..services.admin_access import ADMIN_ROLE, get_user_role
 from ..services.api_security import (
     ErrorCode,
@@ -996,7 +996,7 @@ def forfeit_match(match_id):
         if result.matched_count != 1:
             return _json_error("This match changed before the forfeit was finalized. Refresh and try again.", 409, code="stale_match_action")
         updated = matches.find_one({"_id": match["_id"]})
-        refresh_reigns(current_app.config, current_app.logger)
+        refresh_reigns_after_mutation(current_app.config, current_app.logger)
         record_activity(user=serialize_user(current_user), action_type="forfeit_confirmed", action_label="Match forfeited", details={"match_id": str(match["_id"]), "quit_by": quitter_id, "winner_id": winner_id, "actual_score": [parsed["player_one_score"], parsed["player_two_score"]], "reason": parsed["reason"]})
         serialized = serialize_match(updated, quitter_id)
         return jsonify({"success": True, "message": "Forfeit confirmed. The actual score was preserved.", "data": serialized, "match": serialized}), 200
@@ -1418,7 +1418,7 @@ def confirm_match(match_id):
             return _json_error("This result was already handled.", 409, code="stale_match_action")
         updated_match = matches.find_one({"_id": match["_id"]})
 
-        refresh_reigns(current_app.config, current_app.logger)
+        refresh_reigns_after_mutation(current_app.config, current_app.logger)
 
         record_activity(
             user=serialize_user(current_user),
